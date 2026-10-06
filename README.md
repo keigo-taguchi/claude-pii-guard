@@ -15,7 +15,7 @@ Claude Code の Auto モードをそのままに、**生の個人情報が Anthr
 | 見せずに処理する（P1） | `src/safe_data/` — MCP サーバー `safe-data` | あり（唯一の口） |
 | ソース側で断つ（P1） | `db/*.sql`（ビュー + 専用ロール）、`safeify-csv`（ETL） | あり |
 | 使い方を教える | `skills/safe-analysis/SKILL.md`、`settings/CLAUDE.snippet.md` | なし（体験のため） |
-| Phase 2（未実装） | support-intake / slack-safe / pii-guard hook | — |
+| Phase 2（未実装・設計済み） | pii-guard **Mod** + ローカルデーモン、support-intake / slack-safe — [docs/phase2-mod-design.md](docs/phase2-mod-design.md) | あり（fail-closed） |
 
 ## safe-data のツール
 
