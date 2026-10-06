@@ -4,7 +4,7 @@ Keep raw personal data out of the Anthropic API while keeping Claude Code's Auto
 
 Claude Code の Auto モードをそのままに、**生の個人情報が Anthropic API に届かない**構成を作るためのツール群。骨格は「検出して消す」ではなく「Claude が到達できる場所に生データを置かない」+「個人情報が要る処理は手元で実行して結果だけ返す」。
 
-- 全体像: [docs/plan.html](docs/plan.html)
+- 全体像: https://keigo-taguchi.github.io/claude-pii-guard/plan.html （ソース: [docs/plan.html](docs/plan.html)）
 - 設計書（根拠 URL・未確認事項つき）: [docs/design.md](docs/design.md)
 
 ## 構成
