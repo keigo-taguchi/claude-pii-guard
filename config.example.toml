@@ -1,0 +1,28 @@
+# Copy to ~/.config/safe-data/config.toml (safe-data reads SAFE_DATA_CONFIG or that path).
+
+[paths]
+pii_inbox = "~/PII/inbox"       # files Claude cannot read; safe-data processes them here
+safe_dir = "./data/safe"         # safeify-csv output (TSV, no PII columns)
+analysis_dir = "./analysis"      # py_run scripts must live under this directory (relative to the project)
+
+[db]
+service = "claude_ro"            # PGSERVICE entry in ~/.pg_service.conf
+schema = "claude"                # schema that holds the PII-free views
+
+[limits]
+max_rows = 50
+max_output_chars = 40000         # keep under Claude Code's 50,000-char spill-to-disk threshold
+small_cell = 11                  # count cells 0 < n < 11 are nulled
+py_result_bytes = 8192
+py_string_max = 64
+py_timeout_s = 120
+
+[pii_columns]
+# substrings matched case-insensitively against column names (defaults shown in config.py)
+# patterns = ["name", "氏名", "tel", "mail", "birth", "address", "patient", "user_id", "device_id"]
+
+[docker]
+image = "safe-data-runner:latest"
+
+[pseudo]
+key_file = "~/.config/safe-data/pseudo.key"

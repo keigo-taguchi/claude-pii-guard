@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>個人情報を Claude に送らない計画</title>
+<meta name="description" content="Claude Code の Auto モードの体験を保ったまま、生の個人情報が Anthropic API に届かない構成にするための計画の全体像。">
+<style>
+  :root {
+    color-scheme: light dark;
+
+    --paper-l: #FBFBF9;  --paper-d: #131518;
+    --paper2-l: #F2F3F0; --paper2-d: #1B1E23;
+    --ink-l: #1C2026;    --ink-d: #E8EAED;
+    --muted-l: #5F6773;  --muted-d: #9AA3AD;
+    --line-l: #D9DCE1;   --line-d: #2D3239;
+    --indigo-l: #2B4C8C; --indigo-d: #8FB0F0;
+    --raw-l: #B93A2B;    --raw-d: #F08A7C;
+    --masked-l: #A66E17; --masked-d: #E6B649;
+    --safe-l: #1C7A66;   --safe-d: #5FC9AC;
+
+    --paper:  light-dark(var(--paper-l),  var(--paper-d));
+    --paper2: light-dark(var(--paper2-l), var(--paper2-d));
+    --ink:    light-dark(var(--ink-l),    var(--ink-d));
+    --muted:  light-dark(var(--muted-l),  var(--muted-d));
+    --line:   light-dark(var(--line-l),   var(--line-d));
+    --indigo: light-dark(var(--indigo-l), var(--indigo-d));
+    --raw:    light-dark(var(--raw-l),    var(--raw-d));
+    --masked: light-dark(var(--masked-l), var(--masked-d));
+    --safe:   light-dark(var(--safe-l),   var(--safe-d));
+
+    --raw-bg:    color-mix(in oklab, var(--raw) 9%, var(--paper));
+    --masked-bg: color-mix(in oklab, var(--masked) 11%, var(--paper));
+    --safe-bg:   color-mix(in oklab, var(--safe) 10%, var(--paper));
+    --indigo-bg: color-mix(in oklab, var(--indigo) 9%, var(--paper));
+
+    --font-display: "Hiragino Mincho ProN", "Hiragino Mincho Pro", "Yu Mincho", "YuMincho", "Noto Serif JP", "Source Han Serif JP", "Iowan Old Style", Georgia, serif;
+    --font-body: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic Medium", "Yu Gothic", "Noto Sans JP", "BIZ UDPGothic", system-ui, -apple-system, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK JP", monospace;
+
+    --measure: 60rem;
+    accent-color: var(--indigo);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 4rem; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.9;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--indigo); text-underline-offset: .18em; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--indigo); outline-offset: 3px; border-radius: 4px; }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: .01em;
+    text-wrap: balance;
+    margin: 0;
+  }
+  p, li, dd { text-wrap: pretty; }
+  p { margin: 0 0 1em; }
+  code, .mono { font-family: var(--font-mono); font-size: .92em; }
+  code { background: var(--paper2); padding: .08em .4em; border-radius: 4px; }
+
+  .wrap { max-width: var(--measure); margin: 0 auto; padding: 0 16px; }
+
+  /* ---- top nav ---- */
+  .nav {
+    position: sticky; top: 0; z-index: 10;
+    background: color-mix(in oklab, var(--paper) 88%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav .wrap { display: flex; flex-wrap: wrap; gap: .25rem 1.1rem; align-items: center; padding-block: .55rem; }
+  .nav .brand { font-family: var(--font-display); font-weight: 600; font-size: .95rem; margin-right: auto; }
+  .nav a { font-size: .82rem; color: var(--muted); text-decoration: none; }
+  .nav a:hover { color: var(--ink); }
+
+  /* ---- hero ---- */
+  .hero { padding: 3.2rem 0 1.5rem; }
+  .eyebrow { font-family: var(--font-mono); font-size: .78rem; color: var(--muted); letter-spacing: .04em; margin-bottom: 1rem; }
+  .hero h1 { font-size: clamp(1.7rem, 1.2rem + 2.2vw, 2.6rem); margin-bottom: 1rem; }
+  .hero h1 .kw { display: inline-block; }
+  .lede { font-size: 1.08rem; max-width: 42em; color: var(--ink); }
+  .lede strong { font-weight: 600; }
+
+  .diagram-wrap { margin: 1.6rem 0 .6rem; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); overflow-x: auto; }
+  .diagram { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-body); }
+  .legend { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; font-size: .84rem; color: var(--muted); margin: .4rem 0 0; padding: 0; list-style: none; }
+  .legend li::before { content: ""; display: inline-block; width: .7em; height: .7em; border-radius: 50%; margin-right: .45em; vertical-align: -.05em; background: var(--c); }
+
+  /* SVG styles */
+  .band { fill: var(--paper2); }
+  .band-remote { fill: var(--indigo-bg); }
+  .band-label { font-family: var(--font-mono); font-size: 11.5px; fill: var(--muted); letter-spacing: .04em; }
+  .row-label { font-family: var(--font-display); font-weight: 600; font-size: 17px; fill: var(--ink); }
+  .box { rx: 9; fill: var(--paper); stroke-width: 1.6; }
+  .box-raw { stroke: var(--raw); fill: var(--raw-bg); }
+  .box-claude { stroke: var(--indigo); fill: var(--indigo-bg); }
+  .box-local { stroke: var(--ink); fill: var(--paper); }
+  .t { fill: var(--ink); font-size: 14px; text-anchor: middle; }
+  .t-b { font-weight: 600; }
+  .t-sm { font-size: 11.5px; fill: var(--muted); }
+  .t-mono { font-family: var(--font-mono); font-size: 11px; fill: var(--muted); }
+  .cap { font-size: 13px; fill: var(--muted); }
+  .flow { fill: none; stroke-width: 3.5; stroke-linecap: round; }
+  .flow-raw { stroke: var(--raw); }
+  .flow-safe { stroke: var(--safe); }
+  .flow-masked { stroke: var(--masked); }
+  .flow-ctx { stroke: var(--indigo); }
+  .blocked { fill: none; stroke: var(--raw); stroke-width: 2; stroke-dasharray: 6 6; }
+  .x-circle { fill: var(--paper); stroke: var(--raw); stroke-width: 2; }
+  .x-mark { stroke: var(--raw); stroke-width: 2.2; stroke-linecap: round; }
+  .filter { fill: url(#hatch); stroke: var(--ink); stroke-width: 1.4; rx: 5; }
+  .hatch { stroke: var(--ink); stroke-width: 1.2; }
+  .mk-raw { fill: var(--raw); } .mk-safe { fill: var(--safe); } .mk-masked { fill: var(--masked); } .mk-ctx { fill: var(--indigo); }
+
+  /* ---- sections ---- */
+  section { padding: 2.8rem 0 1.4rem; border-top: 1px solid var(--line); }
+  section > .wrap > h2 { font-size: clamp(1.35rem, 1.1rem + 1vw, 1.75rem); margin-bottom: .4rem; }
+  .sub { color: var(--muted); margin-bottom: 1.6rem; max-width: 44em; }
+
+  /* principles */
+  .principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; margin: 1.2rem 0; padding: 0; list-style: none; }
+  .principles li { border: 1px solid var(--line); border-radius: 12px; padding: 1.1rem 1.2rem; background: var(--paper); }
+  .principles h3 { font-size: 1.1rem; margin-bottom: .4rem; }
+  .principles p { margin: 0; font-size: .95rem; }
+  .rule { border-left: 3px solid var(--indigo); padding: .3rem 0 .3rem 1rem; margin: 1.4rem 0 .6rem; }
+  .rule p { margin: 0; }
+
+  /* reasons */
+  .reasons { list-style: none; padding: 0; margin: 0; display: grid; gap: .9rem; }
+  .reasons li { display: grid; grid-template-columns: 1.6rem 1fr; gap: .6rem; align-items: start; }
+  .reasons li::before { content: "✕"; color: var(--raw); font-weight: 600; line-height: 1.9; }
+  .reasons strong { font-weight: 600; }
+
+  /* layers */
+  .layers { display: grid; gap: 1rem; margin-top: 1.2rem; }
+  .layer { border: 1px solid var(--line); border-radius: 14px; padding: 1.2rem 1.3rem; background: var(--paper); break-inside: avoid; }
+  .layer-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem .8rem; margin-bottom: .8rem; }
+  .layer-head h3 { font-size: 1.15rem; }
+  .tag { font-family: var(--font-mono); font-size: .72rem; letter-spacing: .04em; border: 1px solid var(--line); border-radius: 999px; padding: .1em .65em; color: var(--muted); white-space: nowrap; }
+  .tag-p0 { border-color: var(--indigo); color: var(--indigo); }
+  .phase-note { font-size: .82rem; color: var(--muted); margin-left: auto; }
+  .layer dl { display: grid; grid-template-columns: 6.5em 1fr; gap: .45rem 1rem; margin: 0; font-size: .95rem; }
+  .layer dt { color: var(--muted); font-size: .85rem; padding-top: .15em; }
+  .layer dd { margin: 0; }
+  .layer ul { margin: .3rem 0 0; padding-left: 1.1em; }
+  .layer ul li { margin: .15rem 0; }
+  .ux { display: inline-block; font-size: .8rem; border-radius: 6px; padding: .05em .5em; background: var(--safe-bg); color: var(--safe); font-weight: 600; margin-right: .4em; }
+  .ux-warn { background: var(--masked-bg); color: var(--masked); }
+  @media (max-width: 560px) { .layer dl { grid-template-columns: 1fr; gap: .1rem .6rem; } .layer dt { margin-top: .5rem; } }
+
+  /* scenarios */
+  .scenario { border: 1px solid var(--line); border-radius: 14px; padding: 1.2rem 1.3rem; margin-top: 1rem; background: var(--paper); break-inside: avoid; }
+  .scenario h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: .9rem; }
+  .scenario h3 .q { font-family: var(--font-body); font-weight: 600; }
+  .flowlabel { font-size: .8rem; color: var(--muted); font-family: var(--font-mono); letter-spacing: .04em; margin: .6rem 0 .35rem; }
+  .flow-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .5rem .35rem; align-items: stretch; }
+  .flow-steps li { display: flex; align-items: stretch; gap: .35rem; max-width: 100%; }
+  .flow-steps li + li::before { content: "→"; color: var(--muted); align-self: center; font-size: .95rem; }
+  .step { display: flex; flex-direction: column; justify-content: center; border: 1px solid var(--line); border-radius: 9px; padding: .4rem .7rem; font-size: .86rem; line-height: 1.55; max-width: 21rem; background: var(--paper); }
+  .step .tool { font-family: var(--font-mono); font-size: .74rem; color: var(--muted); }
+  .step.raw { border-color: var(--raw); background: var(--raw-bg); }
+  .step.masked { border-color: var(--masked); background: var(--masked-bg); }
+  .step.safe { border-color: var(--safe); background: var(--safe-bg); }
+  .step.claude { border-color: var(--indigo); background: var(--indigo-bg); }
+  .step.human { border-style: dashed; }
+  .diff { margin: .9rem 0 0; font-size: .92rem; color: var(--muted); }
+  .diff strong { color: var(--ink); font-weight: 600; }
+
+  /* tables */
+  .table-wrap { overflow-x: auto; margin-top: 1rem; border: 1px solid var(--line); border-radius: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; min-width: 700px; table-layout: fixed; }
+  th, td { text-align: left; vertical-align: top; padding: .65rem .85rem; border-bottom: 1px solid var(--line); }
+  th { font-weight: 600; font-size: .82rem; color: var(--muted); background: var(--paper2); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  td.k { font-weight: 600; }
+  .pill { display: inline-block; font-size: .75rem; border-radius: 999px; padding: .02em .6em; border: 1px solid currentColor; white-space: nowrap; }
+  .pill-cut { color: var(--raw); }
+  .pill-keep { color: var(--safe); }
+  .pill-replace { color: var(--masked); }
+
+  /* decisions */
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: 1rem; margin-top: 1.2rem; }
+  .panel { border: 1px solid var(--line); border-radius: 14px; padding: 1.1rem 1.3rem; background: var(--paper); }
+  .panel h3 { font-size: 1.05rem; margin-bottom: .6rem; }
+  .panel ul { margin: 0; padding-left: 1.1em; font-size: .95rem; }
+  .panel li { margin: .35rem 0; }
+  .panel-done { border-top: 3px solid var(--safe); }
+  .panel-open { border-top: 3px solid var(--masked); }
+
+  /* timeline */
+  .timeline { list-style: none; margin: 1.2rem 0 0; padding: 0; display: grid; gap: 0; }
+  .timeline li { display: grid; grid-template-columns: 7.5rem 1fr; gap: 1rem; padding: 1rem 0; border-top: 1px solid var(--line); break-inside: avoid; }
+  .timeline li:first-child { border-top: none; }
+  .when { font-family: var(--font-mono); font-size: .8rem; color: var(--muted); line-height: 1.6; }
+  .when b { display: block; color: var(--ink); font-size: .95rem; font-family: var(--font-display); font-weight: 600; }
+  .timeline h3 { font-size: 1.05rem; margin-bottom: .3rem; }
+  .timeline p { margin: 0 0 .3rem; font-size: .95rem; }
+  .timeline .done { font-size: .88rem; color: var(--muted); }
+  @media (max-width: 560px) { .timeline li { grid-template-columns: 1fr; gap: .3rem; } }
+
+  /* risks */
+  .risks { list-style: none; margin: 1rem 0 0; padding: 0; display: grid; gap: .8rem; }
+  .risks li { border: 1px solid var(--line); border-radius: 12px; padding: .9rem 1.1rem; font-size: .95rem; }
+  .risks b { display: block; font-weight: 600; margin-bottom: .15rem; }
+  .risks span { color: var(--muted); }
+
+  /* glossary */
+  .gloss { display: grid; grid-template-columns: 9em 1fr; gap: .5rem 1rem; margin: 1rem 0 0; font-size: .93rem; }
+  .gloss dt { font-weight: 600; }
+  .gloss dd { margin: 0; color: var(--muted); }
+  @media (max-width: 560px) { .gloss { grid-template-columns: 1fr; gap: 0 .6rem; } .gloss dd { margin-bottom: .6rem; } }
+
+  /* details */
+  details { border: 1px solid var(--line); border-radius: 10px; padding: .55rem .9rem; margin: .8rem 0; background: var(--paper2); }
+  summary { cursor: pointer; font-weight: 600; font-size: .92rem; list-style: none; display: flex; gap: .6rem; align-items: center; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "＋"; color: var(--muted); font-weight: 400; }
+  details[open] summary::before { content: "－"; }
+  details > :not(summary) { font-size: .92rem; }
+  details p:last-child { margin-bottom: .2rem; }
+
+  footer { border-top: 1px solid var(--line); padding: 2rem 0 3rem; color: var(--muted); font-size: .88rem; }
+  footer ul { padding-left: 1.1em; margin: .4rem 0 0; }
+  footer li { margin: .25rem 0; overflow-wrap: anywhere; }
+
+  @media print {
+    .nav { display: none; }
+    body { font-size: 11.5pt; line-height: 1.7; }
+    section { padding: 1.4rem 0 .6rem; }
+    .diagram-wrap { overflow: visible; }
+    .diagram { min-width: 0; }
+    a { color: inherit; }
+    details { background: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav" aria-label="目次">
+  <div class="wrap">
+    <span class="brand">個人情報を Claude に送らない計画</span>
+    <a href="#principles">方針</a>
+    <a href="#why">なぜ</a>
+    <a href="#layers">7つの層</a>
+    <a href="#scenarios">日常の変化</a>
+    <a href="#connectors">コネクタ</a>
+    <a href="#decisions">決定</a>
+    <a href="#plan">進め方</a>
+    <a href="#risks">残るもの</a>
+    <a href="#glossary">用語</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">CureApp ／ Claude Code 運用 ／ 2026-10-06 ／ 方針確定・Day 0 前</div>
+    <h1><span class="kw">「個人情報を Claude に送らない」</span>ために、<span class="kw">やろうとしていること</span></h1>
+    <p class="lede">
+      投げて待つだけの Auto モードは、そのまま。<br>
+      変えるのは一点だけ——<strong>生の個人情報が置いてある場所に Claude Code が届かない</strong>ようにして、個人情報が要る処理は<strong>手元のプログラムが代わりに実行し、個人が出てこない結果だけを Claude に返す</strong>。
+      「送ってから消す」のではなく「届く場所に置かない」。
+    </p>
+
+    <div class="diagram-wrap">
+      <svg class="diagram" viewBox="0 0 1000 520" role="img" aria-labelledby="dg-title dg-desc">
+        <title id="dg-title">今とこれからの、データの流れ</title>
+        <desc id="dg-desc">今は、個人情報を含むデータを Claude Code が直接読み、そのまま Anthropic API に届く。これからは、手元の実行口が実データを処理し、集計・スキーマ・札に置き換えた本文だけが Claude Code に渡る。直接の読み取りは deny と sandbox で遮断し、最後の網として pii-guard が出力を検査する。</desc>
+        <defs>
+          <marker id="m-raw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" class="mk-raw"/></marker>
+          <marker id="m-safe" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" class="mk-safe"/></marker>
+          <marker id="m-masked" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" class="mk-masked"/></marker>
+          <marker id="m-ctx" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" class="mk-ctx"/></marker>
+          <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" class="hatch"/></pattern>
+        </defs>
+
+        <!-- ===== 今 ===== -->
+        <text x="14" y="30" class="row-label">今</text>
+        <rect x="12" y="44" width="804" height="146" rx="14" class="band"/>
+        <text x="28" y="66" class="band-label">手元（あなたの Mac ・ 社内）</text>
+        <rect x="834" y="44" width="154" height="146" rx="14" class="band band-remote"/>
+        <text x="850" y="66" class="band-label">Anthropic</text>
+
+        <rect x="28" y="96" width="176" height="64" class="box box-raw"/>
+        <text x="116" y="122" class="t t-b">DB・CSV・Slack</text>
+        <text x="116" y="144" class="t t-b">Gmail・Sentry</text>
+
+        <line x1="204" y1="128" x2="430" y2="128" class="flow flow-raw" marker-end="url(#m-raw)"/>
+        <text x="318" y="116" class="t t-sm">Read / Bash / コネクタで読む</text>
+
+        <rect x="436" y="96" width="176" height="64" class="box box-claude"/>
+        <text x="524" y="122" class="t t-b">Claude Code</text>
+        <text x="524" y="144" class="t t-sm">文脈 ＝ 送られるもの</text>
+
+        <line x1="612" y1="128" x2="846" y2="128" class="flow flow-raw" marker-end="url(#m-raw)"/>
+        <text x="730" y="116" class="t t-sm">そのまま</text>
+
+        <rect x="852" y="96" width="120" height="64" class="box box-claude"/>
+        <text x="912" y="122" class="t t-b">API</text>
+        <text x="912" y="144" class="t t-sm">Fable 5.1</text>
+
+        <text x="14" y="214" class="cap">読んだものは全部そのまま届く。Fable 5.1 は 30 日以上保持され ZDR も不可。日本語の氏名検出は 8 割なので「送る直前に消す」も頼れない。</text>
+
+        <!-- ===== これから ===== -->
+        <text x="14" y="262" class="row-label">これから</text>
+        <rect x="12" y="276" width="804" height="204" rx="14" class="band"/>
+        <text x="28" y="298" class="band-label">手元（あなたの Mac ・ 社内）</text>
+        <rect x="834" y="276" width="154" height="204" rx="14" class="band band-remote"/>
+        <text x="850" y="298" class="band-label">Anthropic</text>
+
+        <!-- blocked direct path -->
+        <path d="M 116 366 V 330 H 716 V 366" class="blocked"/>
+        <circle cx="416" cy="330" r="11" class="x-circle"/>
+        <path d="M411 325 L421 335 M421 325 L411 335" class="x-mark"/>
+        <text x="416" y="318" class="t t-sm">直接は読めない：deny と sandbox で遮断</text>
+
+        <rect x="28" y="366" width="176" height="64" class="box box-raw"/>
+        <text x="116" y="392" class="t t-b">DB・CSV・Slack</text>
+        <text x="116" y="414" class="t t-b">Gmail・Sentry</text>
+
+        <line x1="204" y1="398" x2="238" y2="398" class="flow flow-raw" marker-end="url(#m-raw)"/>
+
+        <rect x="244" y="344" width="236" height="108" class="box box-local"/>
+        <text x="362" y="368" class="t t-b">手元の実行口</text>
+        <text x="362" y="388" class="t t-mono">safe-data ・ support-intake</text>
+        <text x="362" y="404" class="t t-mono">slack-safe</text>
+        <text x="362" y="424" class="t t-sm">実データで実行し、結果だけ返す</text>
+        <text x="362" y="441" class="t t-sm">札と実名の対応表（vault）はここ</text>
+
+        <line x1="480" y1="386" x2="580" y2="386" class="flow flow-safe" marker-end="url(#m-safe)"/>
+        <text x="532" y="373" class="t t-sm">集計・スキーマ</text>
+        <line x1="480" y1="410" x2="580" y2="410" class="flow flow-masked" marker-end="url(#m-masked)"/>
+        <text x="532" y="428" class="t t-sm">札に置換した本文</text>
+
+        <rect x="586" y="366" width="22" height="64" class="filter"/>
+        <text x="597" y="452" class="t t-sm">pii-guard</text>
+        <text x="597" y="466" class="t t-sm">最後の網</text>
+
+        <line x1="608" y1="386" x2="626" y2="386" class="flow flow-safe"/>
+        <line x1="608" y1="410" x2="626" y2="410" class="flow flow-masked"/>
+
+        <rect x="632" y="366" width="168" height="64" class="box box-claude"/>
+        <text x="716" y="392" class="t t-b">Claude Code</text>
+        <text x="716" y="414" class="t t-sm">文脈には札と集計だけ</text>
+
+        <line x1="800" y1="398" x2="846" y2="398" class="flow flow-ctx" marker-end="url(#m-ctx)"/>
+
+        <rect x="852" y="366" width="120" height="64" class="box box-claude"/>
+        <text x="912" y="392" class="t t-b">API</text>
+        <text x="912" y="414" class="t t-sm">Opus 5.5（ZDR 可）</text>
+
+        <text x="14" y="506" class="cap">Claude に届くのは「個人が出てこない結果」だけ。止めるときは無言で止めるので、確認ダイアログは増えない。</text>
+      </svg>
+    </div>
+    <ul class="legend" aria-label="図の色の意味">
+      <li style="--c: var(--raw)">生の個人情報</li>
+      <li style="--c: var(--masked)">擬似化（札に置換。対応表は手元）</li>
+      <li style="--c: var(--safe)">集計・スキーマ・ダミー（個人が出てこない）</li>
+      <li style="--c: var(--indigo)">Claude ／ API</li>
+    </ul>
+  </div>
+</header>
+
+<!-- ============ 方針 ============ -->
+<section id="principles">
+  <div class="wrap">
+    <h2>方針は三つ</h2>
+    <p class="sub">順番に意味がある。1 と 2 で「送るものがない」状態を作り、3 はそれでも混ざったときの保険。</p>
+    <ol class="principles">
+      <li>
+        <h3>1. 置かない</h3>
+        <p>Claude Code が読める場所に、生の個人情報を置かない。個人情報のある場所（<code>~/PII</code>、本番 DB、Downloads など）は設定で読めなくし、画面・クリップボード・コネクタなど「ファイルでもコマンドでもない経路」は外す。</p>
+      </li>
+      <li>
+        <h3>2. 手元で実行する</h3>
+        <p>個人情報が要る処理は、Claude が書いた SQL やスクリプトを<strong>手元のプログラム</strong>が実データに対して実行し、結果（件数・分布・スキーマ・札に置き換えた本文）だけを Claude に返す。Claude は中身を見ずに仕事ができる。</p>
+      </li>
+      <li>
+        <h3>3. 検出は最後の網</h3>
+        <p>日本語の氏名を自動で見つける精度は、良くて 8 割。だから検出を主役にはしない。それでも何かの出力に混ざったとき、Claude に渡る直前で札に置き換える「保険」として置く。</p>
+      </li>
+    </ol>
+    <div class="rule">
+      <p><strong>Auto モードを守るルール：</strong>確認ダイアログを足さない。止めるときは無言で止め（deny）、変換するときは形を保って変換する。hook は「聞く（ask）」を返さない。そして<strong>塞ぐのは個人情報の実在パスだけ</strong>——<code>~/Library</code> 全体や <code>*.amazonaws.com</code> を丸ごと塞ぐと開発環境が静かに壊れ、それは確認ダイアログより体験を壊す。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ なぜ ============ -->
+<section id="why">
+  <div class="wrap">
+    <h2>なぜ「送る直前に消す」ではだめなのか</h2>
+    <p class="sub">最初に思いつく 3 つの近道が、いずれも使えないことが調査で確定した。</p>
+    <ul class="reasons">
+      <li><div><strong>モデル側で消す余地がない。</strong>Fable 5.1 は「Covered Model」で、入力と出力が 30 日以上保持され、ZDR（保持ゼロ）契約も不可。Bedrock や Google 経由でも同じ扱いが付いてくる。取りこぼし 1 件＝最低 30 日残る。→ だから常用モデルは Fable にしない（決定済み）。</div></li>
+      <li><div><strong>送信の途中でマスクするプロキシは使えない。</strong>公式ガイドが「検査はしてよいが本文は改変しないこと」と明記。改変するとベータ機能・thinking・キャッシュが壊れる。さらに Auto モードの安全判定はモデルの応答に同梱されて返るため、応答を触ると「判定なし＝拒否」になり、10 回続くとターンが止まる。Auto の体験を直撃する。</div></li>
+      <li><div><strong>日本語の検出は主役になれない。</strong>氏名の再現率は最良の自己申告で約 0.8、実文では 0.5 前後の報告もある。GiNZA 等の汎用 NER は住所にほぼ効かず、都道府県名や社名を人名と誤検出してコード編集を壊す。取りこぼしはそのまま送信される。</div></li>
+    </ul>
+    <details>
+      <summary>Claude Code が「送っているもの」の全リスト</summary>
+      <p>ユーザーが打ったプロンプト、@ で指定したファイル、貼り付けた画像、Read / Bash / Grep の出力、MCP コネクタ（Gmail・Slack・Sentry…）の戻り値、CLAUDE.md とメモリ、過去の会話を圧縮した要約、サブエージェントの報告。さらに Auto モードの分類器は、コマンドの引数（SQL の WHERE 句に書いた実名など）と CLAUDE.md を審査対象にする。つまり「ツールが読んだもの」だけでなく「Claude が書こうとしたコマンド」も送信対象。</p>
+    </details>
+  </div>
+</section>
+
+<!-- ============ 7つの層 ============ -->
+<section id="layers">
+  <div class="wrap">
+    <h2>全体像：7 つの層</h2>
+    <p class="sub">P0 は設定だけで今日できる。P1 で構造化データ（DB・CSV・ログ）由来の個人情報が止まる。P2 で自由記述（メール・Slack）の経路を閉じる。P3 は組織判断。</p>
+
+    <div class="layers">
+      <article class="layer">
+        <div class="layer-head"><span class="tag tag-p0">P0</span><h3>1. 届く経路を限定する</h3><span class="phase-note">設定のみ・1 日</span></div>
+        <dl>
+          <dt>やること</dt><dd>画面キャプチャ、クリップボード、ターミナル読取、他セッションの履歴検索、クラウド実行など「ファイルでもコマンドでもない経路」のツールを deny で外す。Gmail / Drive / Calendar / Docs コネクタは claude.ai 側で切断（Desktop 内蔵のコネクタは MCP 設定では止められない）。Artifact と <code>/feedback</code>（会話全文を送る）も無効化。</dd>
+          <dt>防ぐもの</dt><dd>画面やクリップボードに映った個人情報が文脈に入ること。Anthropic 側ホストへの書込み（Artifact / Docs）。</dd>
+          <dt>体験</dt><dd><span class="ux">確認 ±0</span>使わないツールが消えるだけ。</dd>
+        </dl>
+      </article>
+
+      <article class="layer">
+        <div class="layer-head"><span class="tag tag-p0">P0</span><h3>2. 読ませない</h3><span class="phase-note">設定のみ・1 日</span></div>
+        <dl>
+          <dt>やること</dt><dd>個人情報が置いてある場所（<code>~/PII</code>、Downloads、Mail / Messages、本番 DB のホスト名、PII のある S3 バケットなど）を <code>permissions.deny</code> と Bash サンドボックスの両方で読めなくする。DB や AWS の資格情報は Claude Code の子プロセスの環境変数から剥がす。</dd>
+          <dt>防ぐもの</dt><dd>Read / cat / grep -r / 自前の Python スクリプト / psql 直結、どの手段でも生データに届かない。</dd>
+          <dt>体験</dt><dd><span class="ux">確認 ±0</span>deny は無言。サンドボックス内のコマンドは確認なしで実行される。<span class="ux ux-warn">注意</span>塞ぐのは実在パスだけ。開発に要る場所（<code>~/Library/Caches</code>、dev サーバ、AWS CLI）は塞がない。</dd>
+        </dl>
+      </article>
+
+      <article class="layer">
+        <div class="layer-head"><span class="tag">P1</span><h3>3. 見せずに処理する ── safe-data</h3><span class="phase-note">自作 MCP・3〜5 日</span></div>
+        <dl>
+          <dt>やること</dt><dd>自作の MCP サーバー（手元で動く小さなプログラム）。Claude はこれに「スキーマを見せて」「この SQL を実行して」「このスクリプトを走らせて」と頼む。サーバーが実データに対して実行し、個人が出てこない結果だけを返す。
+            <ul>
+              <li><code>schema_describe</code> ── ビューの定義と、Faker で作ったダミー 5 行。実データは一切返さない</li>
+              <li><code>sql_run</code> ── 個人情報列を抜いたビューにだけ SELECT。少数の集計セル（n&lt;11）は伏せる</li>
+              <li><code>py_run</code> ── ネットワークなしのコンテナで実行。出力に実値が混ざっていたら拒否して理由だけ返す</li>
+              <li><code>fixture_from</code> ── テスト用のダミーデータを生成（型と形だけ本物に合わせる）</li>
+            </ul></dd>
+          <dt>防ぐもの</dt><dd>「分析のために生レコードを読む必要」そのもの。</dd>
+          <dt>体験</dt><dd><span class="ux">確認 0</span>読み取り系は自動承認。Claude は中身を見ずにスクリプトを書き、結果を受け取る。いちばん体験が良い層。</dd>
+        </dl>
+      </article>
+
+      <article class="layer">
+        <div class="layer-head"><span class="tag">P1</span><h3>4. ソース側で構造的に断つ</h3><span class="phase-note">DB・ETL・3〜5 日</span></div>
+        <dl>
+          <dt>やること</dt><dd>DB に個人情報列を除いたビュー（<code>users_safe</code> など）と専用の読取ロールを作り、safe-data はそのロールでしか繋げない。氏名の代わりに HMAC で作った擬似 ID を持たせ、DB・Sentry・問い合わせで同じ人が同じ ID になるようにする（突合はできる）。CSV / スプレッドシートは ETL で個人情報列を除いた安全化コピーを <code>./data/safe/</code> に出す。Sentry は組織設定でデータスクラブを ON。</dd>
+          <dt>防ぐもの</dt><dd>検出精度に関係なく「存在しない」状態にする。構造化データについては 100%。</dd>
+          <dt>体験</dt><dd><span class="ux">確認 ±0</span>変化なし。</dd>
+        </dl>
+      </article>
+
+      <article class="layer">
+        <div class="layer-head"><span class="tag">P2</span><h3>5. 問い合わせの取り込み口 ── support-intake / slack-safe</h3><span class="phase-note">自作 MCP・2〜3 週</span></div>
+        <dl>
+          <dt>やること</dt><dd>support@ のメールと Slack の問い合わせを、手元のプログラムが<strong>先に</strong>受け取る。送信者・署名・本文の氏名・連絡先・ID・住所・生年月日を <code>[P12_NAME]</code> のような札に置き換えてから Claude に渡す。札と実名の対応表（vault）は手元の暗号化 DB だけに置く。返信は Claude がテンプレートと札で下書き → 手元で札を実名に戻して Gmail の下書きに保存。送信は人。</dd>
+          <dt>本文の扱い</dt><dd><strong>決定：個人を特定できなければ本文は見せてよい。</strong>識別子はすべて札に。年齢は年代、地域は地方ブロックに丸め、「まれな病名 × 地域 × 年代」のように個人に迫る組合せだけ伏せる。症状・服薬などの内容そのものは残す。</dd>
+          <dt>防ぐもの</dt><dd>メール / Slack の本文にある実名・連絡先が文脈に入ること。</dd>
+          <dt>体験</dt><dd><span class="ux">確認 0</span>Gmail コネクタの代わりに <code>tickets_list → tickets_get → reply_draft</code> の 3 呼び出しで完結。Claude は「[P12_NAME] 様」までしか知らないが、分類・集計・返信下書きには困らない。</dd>
+        </dl>
+      </article>
+
+      <article class="layer">
+        <div class="layer-head"><span class="tag">P2</span><h3>6. 最後の網 ── pii-guard</h3><span class="phase-note">常駐 + hook・2〜3 週</span></div>
+        <dl>
+          <dt>やること</dt><dd>手元に常駐するプログラムと Claude Code の hook。ツールの出力が Claude に渡る直前に、①自社の顧客 DB から毎晩生成する辞書（氏名・メール・電話・患者 ID）、②電話・〒・マイナンバー・患者 ID などの規則、③小型の日本語 NER、の順で検査して札に置き換える。プロンプトに辞書一致の実名や患者 ID が入っていたら、送る前に止めて「safe-data 経由で参照して」と案内する。</dd>
+          <dt>防ぐもの</dt><dd>それでも自由記述に残った取りこぼし。</dd>
+          <dt>体験</dt><dd><span class="ux">確認 0</span>+ 数十 ms。「聞く」は返さない。<span class="ux ux-warn">設計上の注意</span>リポジトリ内のコードには NER を掛けない（誤検出で Edit の一致が壊れると Claude が再読ループに入る）。hook はタイムアウトすると素通しなので、これを主役にしない。</dd>
+        </dl>
+      </article>
+
+      <article class="layer">
+        <div class="layer-head"><span class="tag">P3</span><h3>7. 推論先（万一のための保険）</h3><span class="phase-note">組織判断</span></div>
+        <dl>
+          <dt>やること</dt><dd>既定モデルを Opus 5.5 に（Fable は 30 日保持・ZDR 不可のため常用しない）。そのうえで、組織として ZDR を有効化するか、Bedrock 東京（<code>jp.</code> プロファイル + 保持なし設定）に寄せる。</dd>
+          <dt>防ぐもの</dt><dd>万一漏れたときの「残り方」。これは「送らない」の代わりではない。</dd>
+          <dt>体験</dt><dd><span class="ux">第一者 API なら ±0</span>Bedrock に寄せると WebSearch・claude.ai コネクタ・Desktop の通常モードを失う → 判断が要る。</dd>
+        </dl>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ シナリオ ============ -->
+<section id="scenarios">
+  <div class="wrap">
+    <h2>日常の作業は、こう変わる</h2>
+    <p class="sub">いつもの頼み方のまま。Claude の中で起きることだけが変わる。色は上の図と同じ意味。</p>
+
+    <article class="scenario">
+      <h3><span class="q">「先月の問い合わせをカテゴリ別に集計して、#support-weekly に投稿して」</span></h3>
+      <div class="flowlabel">今</div>
+      <ol class="flow-steps">
+        <li><div class="step raw"><span class="tool">Gmail コネクタ</span>メール全文を読む</div></li>
+        <li><div class="step raw"><span class="tool">API</span>氏名・連絡先・本文がそのまま届く</div></li>
+      </ol>
+      <div class="flowlabel">これから</div>
+      <ol class="flow-steps">
+        <li><div class="step masked"><span class="tool">support-intake.tickets_list</span>先月分のカテゴリ・製品・日付・擬似 ID だけ（名前も本文もなし）</div></li>
+        <li><div class="step claude"><span class="tool">Claude</span>集計して文章にする</div></li>
+        <li><div class="step safe"><span class="tool">slack-safe.post</span>投稿先は許可リスト。送る前に実値が混ざっていないか検査</div></li>
+      </ol>
+      <p class="diff"><strong>差：</strong>Gmail を直接読まなくなるだけ。結果は同じ。確認ダイアログは 0。</p>
+    </article>
+
+    <article class="scenario">
+      <h3><span class="q">「チケット T-881 のユーザーがログインできない原因を調べて直して」</span></h3>
+      <div class="flowlabel">今</div>
+      <ol class="flow-steps">
+        <li><div class="step raw"><span class="tool">Bash: psql</span>users テーブルを SELECT → 氏名・メールが文脈へ</div></li>
+        <li><div class="step raw"><span class="tool">Sentry コネクタ</span>イベントに user.email</div></li>
+      </ol>
+      <div class="flowlabel">これから</div>
+      <ol class="flow-steps">
+        <li><div class="step masked"><span class="tool">support-intake.tickets_get</span>擬似 ID と、札に置き換えた本文</div></li>
+        <li><div class="step safe"><span class="tool">safe-data.sql_run</span>users_safe ビュー：擬似 ID・アプリ版・プラン・最終ログイン日</div></li>
+        <li><div class="step safe"><span class="tool">safe-data.sentry_events</span>手元で擬似化したエラー要約</div></li>
+        <li><div class="step claude"><span class="tool">Claude</span>原因特定 → コード修正・PR はいつも通り</div></li>
+      </ol>
+      <p class="diff"><strong>差：</strong>Claude は実名ではなく擬似 ID で人を指す。実名をコマンド引数に書こうとしたら、実行前に止めて擬似 ID を使うよう案内する。</p>
+    </article>
+
+    <article class="scenario">
+      <h3><span class="q">「この利用ログ CSV から継続率を出してグラフにして」</span></h3>
+      <div class="flowlabel">今</div>
+      <ol class="flow-steps">
+        <li><div class="step raw"><span class="tool">Read</span>CSV の全行が文脈へ</div></li>
+        <li><div class="step raw"><span class="tool">API</span>ユーザー ID・メール・行動ログが届く</div></li>
+      </ol>
+      <div class="flowlabel">これから</div>
+      <ol class="flow-steps">
+        <li><div class="step human"><span class="tool">あなた</span>CSV を <code>~/PII/inbox/</code> に置く（Claude は読めない場所）</div></li>
+        <li><div class="step safe"><span class="tool">safe-data.files_describe</span>スキーマとダミー 5 行（実データは返さない）</div></li>
+        <li><div class="step claude"><span class="tool">Claude</span>分析スクリプトを書く</div></li>
+        <li><div class="step safe"><span class="tool">safe-data.py_run</span>手元のネットワークなしコンテナで実行。集計 JSON だけ返す（実値が混ざれば拒否）</div></li>
+        <li><div class="step claude"><span class="tool">Claude</span>グラフとレポート</div></li>
+      </ol>
+      <p class="diff"><strong>差：</strong>Claude は中身を見ずにスクリプトを書く。「見てから書く」より 1 往復増えることはあるが、確認ダイアログは 0。</p>
+    </article>
+
+    <article class="scenario">
+      <h3><span class="q">「T-881 に返信の下書きを作って」</span></h3>
+      <div class="flowlabel">これから</div>
+      <ol class="flow-steps">
+        <li><div class="step masked"><span class="tool">support-intake.tickets_get</span>Claude が知るのは「[P12_NAME] 様」まで</div></li>
+        <li><div class="step claude"><span class="tool">Claude → reply_draft</span>テンプレートと札で下書き</div></li>
+        <li><div class="step safe"><span class="tool">support-intake（手元）</span>札を実名に戻して Gmail の下書きに保存</div></li>
+        <li><div class="step human"><span class="tool">あなた</span>確認して送信</div></li>
+      </ol>
+      <p class="diff"><strong>差：</strong>実名は手元で戻る。Claude の文脈には一度も入らない。</p>
+    </article>
+
+    <article class="scenario">
+      <h3><span class="q">コードの修正・レビュー・PR</span></h3>
+      <p class="diff" style="margin-top:0"><strong>変わらない。</strong>条件は「リポジトリに個人情報を置かない」だけ（pre-commit で同じ検出器が走る）。dev サーバのプレビュー、テスト、AWS CLI もそのまま使える。</p>
+    </article>
+  </div>
+</section>
+
+<!-- ============ コネクタ ============ -->
+<section id="connectors">
+  <div class="wrap">
+    <h2>コネクタとツールの置き換え</h2>
+    <p class="sub">「切る」ものには必ず代わりがある。代わりがないものは、もともと個人情報の経路ではない。</p>
+    <div class="table-wrap">
+      <table>
+        <colgroup><col style="width:23%"><col style="width:47%"><col style="width:30%"></colgroup>
+        <thead><tr><th>今</th><th>これから</th><th>なぜ</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Gmail コネクタ</td><td><span class="pill pill-replace">置換</span> 切断し、<strong>support-intake</strong> に。support@ だけを OAuth で読み、取込時に擬似化。返信は下書きまで</td><td>本文に氏名・連絡先・健康情報が直接入る</td></tr>
+          <tr><td class="k">Google Drive</td><td><span class="pill pill-replace">置換</span> 切断。必要なファイルは ETL で安全化コピーを <code>./data/safe/</code> に</td><td>スプレッドシートの顧客名列</td></tr>
+          <tr><td class="k">Google Calendar</td><td><span class="pill pill-cut">切断</span> 業務上の必要がなければ</td><td>予定タイトルに顧客名</td></tr>
+          <tr><td class="k">Claude Docs</td><td><span class="pill pill-cut">切断</span> または deny</td><td>社内文書の読取と、Anthropic ホストへの書込みの双方向</td></tr>
+          <tr><td class="k">Slack コネクタ</td><td><span class="pill pill-replace">置換</span> 切断し、<strong>slack-safe</strong> に。Bot トークン、読むチャンネルと投稿先を許可リスト、擬似化</td><td>問い合わせチャンネルに実名。既存スキル（weekly-shanaiho）は slack-safe に差し替え</td></tr>
+          <tr><td class="k">Sentry</td><td><span class="pill pill-replace">置換</span> 組織設定でスクラブ ON。有効化後 90 日はコネクタを deny し、<code>safe-data.sentry_events</code> で代替</td><td>イベントに user.email 等。スクラブは既存イベントに遡及しない</td></tr>
+          <tr><td class="k">Figma</td><td><span class="pill pill-keep">そのまま</span></td><td>個人情報の経路ではない</td></tr>
+          <tr><td class="k">AWS MCP</td><td><span class="pill pill-replace">絞る</span> <code>run_script</code> / <code>get_presigned_url</code> は deny。残りは S3 / DynamoDB / ログの読取を Deny した専用 IAM ロールで</td><td>生データのバケットやテーブルに届く</td></tr>
+          <tr><td class="k">GitKraken / gh の Issue・PR 本文</td><td><span class="pill pill-replace">絞る</span> 本文取得だけ deny。git 操作・PR 作成・CI 確認は残す</td><td>Issue に顧客のログが貼られることがある</td></tr>
+          <tr><td class="k">画面・クリップボード・ターミナル読取・セッション検索・computer use・Chrome 拡張</td><td><span class="pill pill-cut">deny</span></td><td>ファイルでもコマンドでもない経路。Desktop 内蔵ツールへの deny が効くかは Day 0 で実測</td></tr>
+          <tr><td class="k">内蔵ブラウザ</td><td><span class="pill pill-replace">絞る</span> ページ内容を読む系だけ deny。dev サーバのプレビューとログは残す</td><td>社内画面に個人情報。ダミーデータの環境でだけ使う</td></tr>
+          <tr><td class="k">Artifact・クラウド実行・Routines・/feedback</td><td><span class="pill pill-cut">無効化</span></td><td>Anthropic 側で動く・置かれる・会話全文を送る</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 決定 ============ -->
+<section id="decisions">
+  <div class="wrap">
+    <h2>決まったこと、まだ決めること</h2>
+    <div class="two">
+      <div class="panel panel-done">
+        <h3>決まった（あなたの回答から）</h3>
+        <ul>
+          <li><strong>モデル：</strong>Fable 5.1 は常用しない。既定は Opus 5.5（Covered Model ではなく、ZDR が可能）。</li>
+          <li><strong>利用面：</strong>Desktop でも CLI でもよい。Day 0 の実測で Desktop 内蔵ツールへの deny が効かなければ、個人情報に近い作業だけ CLI に寄せる。</li>
+          <li><strong>コネクタ：</strong>置き換えてよい（上の表のとおり）。</li>
+          <li><strong>要配慮の内容：</strong>個人を特定できなければ、症状・服薬などを含む本文を Claude に見せてよい。識別子は札に、年齢・地域は丸める。</li>
+          <li><strong>設計：</strong>送信プロキシでのマスキングは採らない。「置かない + 手元で実行」を骨格に、検出は保険。</li>
+        </ul>
+      </div>
+      <div class="panel panel-open">
+        <h3>まだ決める（主に組織・環境）</h3>
+        <ul>
+          <li><strong>契約：</strong><code>/status</code> の結果は Team / Enterprise か、API キーか。ZDR を有効化できるか。</li>
+          <li><strong>推論先：</strong>第一者 API + ZDR か、Bedrock 東京 <code>jp.</code>（WebSearch・コネクタ・Desktop 通常モードを失う）か。</li>
+          <li><strong>法務に 1 点：</strong>札に置き換えた本文 + 社内の対応表は「仮名加工情報」として扱われ得る。送信を「委託」として整理するかの確認。</li>
+          <li><strong>環境：</strong>DB は PostgreSQL か（違えば ETL で安全化レプリカを作る方式に）。sudo / 別ユーザー作成、Docker Desktop の可否。リポジトリが <code>~/Documents</code> 等にあるか。</li>
+          <li><strong>権限：</strong>Sentry の組織管理者、Google Workspace 管理者（support@ の OAuth 承認）。</li>
+          <li><strong>スコープ：</strong>従業員の情報（git author・メールアドレス）も対象にするか。構造的に毎回送られるので、ここは線引きが要る。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 進め方 ============ -->
+<section id="plan">
+  <div class="wrap">
+    <h2>進め方</h2>
+    <p class="sub">各フェーズの終わりに「何が止まったか」を偽の個人情報（カナリア）で確認してから次へ進む。</p>
+    <ol class="timeline">
+      <li>
+        <div class="when"><b>Day 0</b>半日</div>
+        <div>
+          <h3>棚卸しと実測</h3>
+          <p><code>/status</code> <code>/model</code> <code>/mcp</code> でプラン・モデル・接続中コネクタを記録。偽の個人情報で、Desktop 内蔵ツールへの deny、ドラッグ＆ドロップや画像貼付の挙動を実測。導入前の会話履歴を削除。</p>
+          <p class="done">完了：チェックリスト全項目 Yes。</p>
+        </div>
+      </li>
+      <li>
+        <div class="when"><b>Phase 0</b>1〜2 日</div>
+        <div>
+          <h3>設定だけで「届く経路の限定」と「読ませない」</h3>
+          <p><code>settings.json</code>（deny / sandbox / 環境変数）、コネクタ切断、モデルを Opus 5.5 に。</p>
+          <p class="done">完了：Auto で確認 0 回のまま、Desktop のワークスペース読み書き・dev サーバ・AWS CLI が動き、<code>~/PII</code> と本番 DB には届かない。</p>
+        </div>
+      </li>
+      <li>
+        <div class="when"><b>Phase 1</b>3〜5 日</div>
+        <div>
+          <h3>構造的に断つ</h3>
+          <p>DB ビュー + 専用ロール、safe-data（schema / sql / fixture）、CSV の ETL、Sentry スクラブ、カナリア常駐。</p>
+          <p class="done">完了：構造化データ由来の個人情報が、会話の記録にも送信記録にも 0 件。</p>
+        </div>
+      </li>
+      <li>
+        <div class="when"><b>Phase 2</b>4〜5 週</div>
+        <div>
+          <h3>自由記述の経路を閉じる</h3>
+          <p>support-intake + vault、slack-safe、pii-guard と日本語検出（辞書 → 規則 → NER）、py_run、Claude Code 更新ごとの契約テスト、夜間の送信記録スキャン。</p>
+          <p class="done">完了：契約テスト全緑。取りこぼし率を実測し記録。</p>
+        </div>
+      </li>
+      <li>
+        <div class="when"><b>Phase 3</b>組織判断</div>
+        <div>
+          <h3>保険と統制</h3>
+          <p>ZDR 契約 または Bedrock 東京、管理者が配布する設定（ユーザーが外せない deny）、監査ログ。</p>
+          <p class="done">完了：「何を送ったか」を後から示せる。</p>
+        </div>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============ 残るもの ============ -->
+<section id="risks">
+  <div class="wrap">
+    <h2>それでも残るもの（正直に）</h2>
+    <p class="sub">閉じられない経路は、運用と周知で扱う。どれも「構造で防げない」ことが分かっている。</p>
+    <ul class="risks">
+      <li><b>手で打ち込んだ名前</b><span>プロンプトは書き換えられず、止めることしかできない。辞書にない人名はそのまま送られる。→ 手順と <code>pbpaste | pii-mask | pbcopy</code> のショートカット。</span></li>
+      <li><b>貼り付けた画像・スクリーンショット・PDF</b><span>画像を hook で書き換える手段がない。→ 運用で禁止。Desktop の自動スクリーンショット（autoVerify）は OFF。</span></li>
+      <li><b>辞書にない新規の問い合わせ者</b><span>NER は 8 割。→ 取込時に送信者・署名から氏名・メール・電話を即時に辞書登録して、既知の人は 100% にする。</span></li>
+      <li><b>hook は落ちると素通し</b><span>タイムアウトや形の不一致は「決定なし」で原文が送られる。→ だから層 1〜4 が主役。夜間のカナリア走査で検知。</span></li>
+      <li><b>従業員の情報</b><span>git author、メールアドレス、cwd のパスは構造的に毎回送られる。→ スコープを決める（顧客・患者・問い合わせ者に限るか）。</span></li>
+      <li><b>Desktop 内蔵ツールへの deny の有効性</b><span>文書化されていない。→ Day 0 で実測。効かなければ個人情報に近い作業は CLI。</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ 用語 ============ -->
+<section id="glossary">
+  <div class="wrap">
+    <h2>用語</h2>
+    <dl class="gloss">
+      <dt>札（擬似化）</dt><dd>実値を <code>[P12_NAME]</code> のような札に置き換えること。同じ人は同じ札。対応表は手元にだけ置く。</dd>
+      <dt>vault</dt><dd>札と実値の対応表。暗号化した SQLite。Claude Code からは読めない。</dd>
+      <dt>compute-to-data</dt><dd>データを AI に持っていくのではなく、AI が書いたコードをデータの所で実行して、結果だけ持ち帰る考え方。safe-data はこれ。</dd>
+      <dt>deny ルール</dt><dd>Claude Code の設定で、ツールの使用を無言で拒否する仕組み。Auto を含む全モードで効く。</dd>
+      <dt>sandbox</dt><dd>Bash を OS レベルで隔離する仕組み。読めるパスと繋げるホストを制限する。中で動くコマンドは確認なしで実行される。</dd>
+      <dt>hook</dt><dd>ツール実行の前後に走る自前のプログラム。実行前なら止められ、実行後なら出力を置き換えられる（全ツール）。</dd>
+      <dt>Auto モードの分類器</dt><dd>人の代わりに第 2 のモデルが操作を審査する仕組み。判定はモデルの応答に同梱されて返る。</dd>
+      <dt>Covered Model</dt><dd>Fable / Mythos 系。入力と出力が 30 日以上保持され、ZDR 不可。Bedrock / Google 経由でも同じ。</dd>
+      <dt>ZDR</dt><dd>Zero Data Retention。Anthropic 側で入力と出力を保持しない契約。Opus 5.5 などで可能。</dd>
+    </dl>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>この資料は、Claude Code の公式ドキュメント・各ベンダーの一次資料を調査して組んだ設計書 <code>pii-guard-design.md</code>（全文・URL 付き・未確認事項 30 件を明記）の要約です。次の 4 点は本体で直接再確認済み：</p>
+    <ul>
+      <li>Fable 5.1 は Covered Model（30 日以上保持・ZDR 不可・他社クラウドでも追従）── support.claude.com/en/articles/15425695-covered-models</li>
+      <li>PostToolUse hook の <code>updatedToolOutput</code> は全ツールの結果を置換できる／UserPromptSubmit は書き換え不可 ── code.claude.com/docs/en/hooks</li>
+      <li>Auto モードのサーバ側分類器：判定なしは拒否、10 連続でターン停止／deny ルールは全モードで有効 ── code.claude.com/docs/en/permission-modes</li>
+      <li>LLM ゲートウェイは「inspect without modifying」── code.claude.com/docs/en/llm-gateway-protocol</li>
+    </ul>
+  </div>
+</footer>
+
+<script>
+  // 印刷時は折りたたみを開く
+  {
+    const closed = [];
+    addEventListener('beforeprint', () => {
+      document.querySelectorAll('details:not([open])').forEach(d => { d.open = true; closed.push(d); });
+    });
+    addEventListener('afterprint', () => { closed.splice(0).forEach(d => { d.open = false; }); });
+  }
+</script>
+</body>
+</html>

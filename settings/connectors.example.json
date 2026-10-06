@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy to settings/connectors.local.json and fill in the server names shown by /mcp (the part before the tool name, e.g. mcp__a5659841-4630-49db-896c-ffa28287e145). Leave a value empty to skip that rule.",
+  "gmail": "",
+  "drive": "",
+  "calendar": "",
+  "docs": "",
+  "sentry": "",
+  "slack": ""
+}
