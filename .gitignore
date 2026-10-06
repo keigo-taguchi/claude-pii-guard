@@ -7,3 +7,5 @@ config.toml
 *.local.json
 data/raw/
 out-real/
+mods/pii-guard/.claude-plugin/types/
+mods/pii-guard/tsconfig.json

@@ -15,7 +15,8 @@ Claude Code の Auto モードをそのままに、**生の個人情報が Anthr
 | 見せずに処理する（P1） | `src/safe_data/` — MCP サーバー `safe-data` | あり（唯一の口） |
 | ソース側で断つ（P1） | `db/*.sql`（ビュー + 専用ロール）、`safeify-csv`（ETL） | あり |
 | 使い方を教える | `skills/safe-analysis/SKILL.md`、`settings/CLAUDE.snippet.md` | なし（体験のため） |
-| Phase 2（未実装・設計済み） | pii-guard **Mod** + ローカルデーモン、support-intake / slack-safe — [docs/phase2-mod-design.md](docs/phase2-mod-design.md) | あり（fail-closed） |
+| 最後の網（P2a・実装済み） | `mods/pii-guard/`（Claude Code **Mod**）+ `src/pii_guard/`（ローカルデーモン：辞書 + 規則 + vault） — [docs/phase2-mod-design.md](docs/phase2-mod-design.md) | あり（fail-closed） |
+| Phase 2b/2c（未実装） | NER、`ui.render` 復元、support-intake / slack-safe | — |
 
 ## safe-data のツール
 
@@ -26,6 +27,28 @@ Claude Code の Auto モードをそのままに、**生の個人情報が Anthr
 | `sql_run(sql, max_rows)` | 1 文の SELECT の結果（行数上限・n<11 抑止） | `SELECT *`、書込み、設定読取 |
 | `py_run(script, inputs)` | ネットワーク無しコンテナで実行した結果 JSON（8KB） | 保護対象の値を含む結果、print 出力 |
 | `fixture_make(source, n)` | ビュー/ファイルと同じ形の合成行 | — |
+
+## pii-guard（Mod + デーモン）
+
+```bash
+# 辞書: 自社の顧客 CSV か DB から（氏名・かな・メール・電話・ID の列を指定）
+uv run pii-guard-dict --from-csv ~/PII/exports/customers.csv --id user_id --name name --kana kana --email mail --phone tel
+# デーモンを LaunchAgent として常駐
+scripts/pii-guard-launchd.sh install
+# Mod を読み込んで起動（常用するなら ~/.claude/settings.json の env に CLAUDE_CODE_PLUGIN_DIRS を置く）
+claude --plugin-dir ~/work/claude-pii-guard/mods/pii-guard
+```
+
+| イベント | すること | 失敗時 |
+|---|---|---|
+| `prompt.submit` | 打ち込んだ本文と context を `/mask` | `{ drop }`（送信しない） |
+| `session.append` | 保存される全行（ツール結果・失敗結果・添付）を `/mask`、画像/文書は除外 | 行の本文を伏せ字に差し替え |
+| `prompt.context` | CLAUDE.md・メモリ・git 状態を `/mask` | context を空にする |
+| `tool.call`（Bash と MCP） | 引数に辞書一致・患者 ID があれば `{ deny }` | `{ deny }` |
+| `turn.step` | 汚染中はモデルを呼ばない | — |
+| `/pii` | status / untaint / reload / off / on | — |
+
+検出は辞書（自社 DB 由来、異体字・かな・ローマ字の揺れを吸収）→ 規則（メール・電話・〒・文脈付きマイナンバー・文脈付き生年月日・住所・患者 ID）。site で強さを変える（コード行は辞書と ID のみ）。`claude plugin test`（15 件）と pytest（48 件）で検証。
 
 ## セットアップ
 

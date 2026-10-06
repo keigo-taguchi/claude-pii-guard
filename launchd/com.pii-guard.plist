@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.pii-guard</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__UV__</string>
+    <string>--directory</string>
+    <string>__REPO__</string>
+    <string>run</string>
+    <string>pii-guard</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>__HOME__/.config/safe-data/pii-guard.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/.config/safe-data/pii-guard.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin</string>
+  </dict>
+</dict>
+</plist>

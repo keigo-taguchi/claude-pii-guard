@@ -26,3 +26,12 @@ image = "safe-data-runner:latest"
 
 [pseudo]
 key_file = "~/.config/safe-data/pseudo.key"
+
+[pii_guard]
+# The masking daemon used by the Claude Code mod (mods/pii-guard), support-intake, and nightly scans.
+# dictionary = "~/.config/safe-data/dictionary.json"   # built by: pii-guard-dict ...
+# vault = "~/.config/safe-data/vault.sqlite"
+host = "127.0.0.1"
+port = 8787
+# patient_id_regex = "PT-\\d{6}"                        # your own patient / member id scheme
+# allow_email_domains = ["example.co.jp"]                 # colleagues' addresses are not customer PII

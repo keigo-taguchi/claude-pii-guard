@@ -1,0 +1,1 @@
+{ "description": "pii-guard hooks module", "modules": ["./register.ts"] }

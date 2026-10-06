@@ -1,0 +1,39 @@
+{
+  "name": "pii-guard",
+  "version": "0.1.0",
+  "description": "Masks personal data in prompts, stored conversation rows, and context before they reach the model, through a local pii-guard daemon (dictionary + rules). Fail-closed: when the daemon cannot be reached, prompts are dropped and rows are blanked.",
+  "author": { "name": "keigo-taguchi" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "daemonUrl": {
+      "type": "string",
+      "title": "pii-guard daemon URL",
+      "description": "Local HTTP endpoint of the pii-guard daemon.",
+      "required": false,
+      "default": "http://127.0.0.1:8787"
+    },
+    "images": {
+      "type": "string",
+      "title": "Images and documents",
+      "description": "\"drop\" (default): image/document blocks are removed from stored rows because they cannot be masked. \"pass\": sent as they are.",
+      "required": false,
+      "default": "drop",
+      "options": ["drop", "pass"]
+    },
+    "bashSite": {
+      "type": "string",
+      "title": "How to treat Bash output",
+      "description": "\"data\" (default): full rules. \"code\": dictionary + ids only, which keeps Edit old_string matching but misses phone/address patterns in command output.",
+      "required": false,
+      "default": "data",
+      "options": ["data", "code"]
+    },
+    "safeTools": {
+      "type": "string",
+      "title": "Tools whose output is already pseudonymized",
+      "description": "Comma-separated tool-name prefixes to leave untouched.",
+      "required": false,
+      "default": "mcp__safe-data__,mcp__support-intake__,mcp__slack-safe__"
+    }
+  }
+}
