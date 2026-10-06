@@ -1,3 +1,5 @@
+> **注記**: この文書は筆者の環境（macOS・Claude Desktop・医療系ソフトウェア企業のサポート業務）を前提に 2026-10-05 時点の公式ドキュメントを調査して書いた設計記録です。ツール名・ドメイン・Skill 名は例で、読者の環境に合わせて読み替えてください。「未確認」と付けた箇所は実測が必要です。
+
 <!--
 生成: 2026-10-05 / 24エージェントのワークフロー（調査5・設計4・批評12・統合3）の最終出力。
 本文中の「未確認」表記はそのまま残している（30件）。以下の4点は Claude 本体が公式ドキュメントで直接再確認済み:
@@ -61,7 +63,7 @@
 10. **`!` シェルモードはサンドボックス外で実行され、出力がそのまま文脈に入り Claude が自動応答する。** deny もフックも通らない。https://code.claude.com/docs/en/interactive-mode#shell-mode-with-prefix
 11. **クラウド面（`claude --cloud`、Desktop「Open in Cloud」、Routines、Ultrareview）はローカル settings/フック/サンドボックスを読まない。** リポジトリをバンドルして Anthropic VM にアップロードする。https://code.claude.com/docs/en/claude-code-on-the-web 、https://code.claude.com/docs/en/routines
 12. **プラン種別の確認が抜けていた。** 消費者プラン（Free/Pro/Max）は「モデル改善」設定が ON なら Claude Code の入出力も学習に使われ 5 年保持。商用（Team/Enterprise/API）は学習不使用。Desktop の computer use と Dispatch は Pro/Max 限定機能なので、本環境は消費者プランの可能性がある。https://code.claude.com/docs/en/data-usage 、https://code.claude.com/docs/en/desktop#let-claude-use-your-computer
-13. **要配慮個人情報の「内容」（病名・服薬・検査値）が抜けていた。** 識別子を消しても本文に残り、擬似 ID 付き個票は CureApp 側で復元可能＝仮名加工情報として第三者提供不可（PPC Q&A 14-17）。個票ではなく集計のみ返す設計が必要。
+13. **要配慮個人情報の「内容」（病名・服薬・検査値）が抜けていた。** 識別子を消しても本文に残り、擬似 ID 付き個票は 自社側で復元可能＝仮名加工情報として第三者提供不可（PPC Q&A 14-17）。個票ではなく集計のみ返す設計が必要。
 14. **「日本語の検出は自前で足す（GiNZA 等）」は過小評価。** 一般 NER は PII 用ではなく、誤検出（都道府県・社名・部品番号・非 DOB 日付）がコード/ログ解析を壊す。再現率も §2 の通り。構造的遮断を主役にし、検出は残余層。
 15. **「deny とフックは Auto でも効く」は正しいが条件が抜けていた。** フックの `ask` は Auto でも必ずプロンプト。`blockReadsOutsideWorkingDirectories` 下で「シェルパーサが追跡できないコマンド（サブシェル・複数 cd）」はサンドボックスが強制していない限り Auto でもプロンプト。`strictAllowlist`/`allowManagedDomainsOnly` は Auto 固有の「コマンド単位ドメイン承認」を無効化する。https://code.claude.com/docs/en/permission-modes#actions-no-mode-auto-approves 、https://code.claude.com/docs/en/sandboxing#per-command-allowed-domains-in-auto-mode
 16. **「送ってから消す」の余地はさらに無い。** ZDR/HIPAA 契約下でも T&S フラグ時は最長 2 年保持。Claude Code は HIPAA readiness 対象外。https://platform.claude.com/docs/en/manage-claude/api-and-data-retention
@@ -77,7 +79,7 @@
 - **§4.5「MCP 集合の固定」は事実誤認。** `managedMcpServers` は `https://` の `http`/`sse` 専用で `command`/`args`/`env` を持てない（stdio の自作サーバは配布不可）。`strictPluginOnlyCustomization:["mcp"]` は `~/.claude.json`/`.mcp.json` のサーバを止めるので safe-data 自身が消える。いずれも Managed 専用。in-process `sdk` 型は allow/deny 両リストの対象外。https://code.claude.com/docs/en/managed-mcp#provide-servers-through-managed-settings
 - **ドット付きツール名（`schema.describe` 等）は API のツール名規約 `^[a-zA-Z0-9_-]{1,128}$` に反する。** → 全てアンダースコアに統一。https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
 - **「要配慮の内容は集計のみ」と宣言しつつ `tickets.get` が擬似化済み本文（健康情報を含む）を返していた。** → 既定は構造化フィールドのみ、本文返却は deny 既定の別ツール + 決定点 5 + 要配慮語彙ゲート（§4.4, §4.8）。
-- **`deniedDomains` の `*.amazonaws.com` / `*.googleapis.com` は全モードで拒否されコマンド単位承認でも開かないため、`aws`/`cdk`/`terraform`/`gcloud`/`gws`/Chromium 取得が永久に失敗する。** → データプレーンの実ホストだけ deny、境界は IAM に置く。
+- **`deniedDomains` の `*.amazonaws.com` / `*.googleapis.com` は全モードで拒否されコマンド単位承認でも開かないため、`aws`/`cdk`/`terraform`/`gcloud`/Chromium 取得が永久に失敗する。** → データプレーンの実ホストだけ deny、境界は IAM に置く。
 - **Sentry deny が方針（移行期 90 日は read 系全部）と不一致、GitKraken の Issue/PR 本文ツールが開いたまま `gh pr view` だけ止めていた、WebFetch が denylist/allowlist の二重記述、Artifact 無効化と Claude Docs コネクタが設定に無かった、汚染マーカーの解除経路が無かった。** → §4.1, §4.5, §4.6 で整合。
 - **§4.3 SQL は `hmac` が search_path から解決できず実行時エラー**（pgcrypto のスキーマ未修飾）。→ スキーマ修飾 + read-only の担保は GRANT 不付与が本線と明記。
 
@@ -106,7 +108,7 @@ claude --version   # 以下の最小版: updatedToolOutput 書換 2.1.233+、cla
                    # Bedrock の enforceAvailableModels 起動チェック 2.1.287+
 ```
 - **Pro/Max なら**: claude.ai の Privacy 設定で「Help improve Claude」を OFF（30 日保持へ）、業務利用は Team/Enterprise か Console API キー（商用規約）へ移行を前提にする。org の connector tool-control（`blocked`）は Team/Enterprise のみ。Desktop 管理キーが Pro/Max 端末で読まれるかは §4.1 の実測項目。
-- **棚卸し（要件 B の実体は「今の仕事が回る」こと）**: 本環境のスキルと依存先 — `weekly-shanaiho`（Slack コネクタ読取）、`gws`/`ailab-terakoya-report`/`sheets-canvas`（Google API）、`kawaraban`（社内アップロード）、`note`（cwd の `.claude/memo/`）、`sonnet-orchestrate`（並行サブエージェント、背景実行を使う可能性）、`teamspirit-kosu`（Salesforce を Chrome 拡張/computer use で操作）。各スキルが SKILL.md 内の `` !`cmd` `` 動的注入を使うか確認してから `disableSkillShellExecution` を決める（https://code.claude.com/docs/en/settings-reference#disableskillshellexecution ）。`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` は「Bash と**サブエージェント**の `run_in_background`・自動バックグラウンド化・Ctrl+B」を全部止める（https://code.claude.com/docs/en/env-vars ）ので、`sonnet-orchestrate` を残すなら設定せず、背景タスク出力は PostToolUse（全ツール matcher、`TaskOutput` 含む）+ 夜間 DLP で守る。PII に触れないスキル（`kawaraban`, `teamspirit-kosu`）は「PII セッション用 settings プロファイル（`--settings`）と通常プロファイルを分ける」選択肢を DP9 に置く。
+- **棚卸し（要件 B の実体は「今の仕事が回る」こと）**: 本環境のスキルと依存先 — Slack コネクタを読む Skill、Google API を使う Skill、並行サブエージェントを使う Skill、Chrome 拡張/computer use を使う Skill など（筆者環境の例）。各スキルが SKILL.md 内の `` !`cmd` `` 動的注入を使うか確認してから `disableSkillShellExecution` を決める（https://code.claude.com/docs/en/settings-reference#disableskillshellexecution ）。`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` は「Bash と**サブエージェント**の `run_in_background`・自動バックグラウンド化・Ctrl+B」を全部止める（https://code.claude.com/docs/en/env-vars ）ので、`sonnet-orchestrate` を残すなら設定せず、背景タスク出力は PostToolUse（全ツール matcher、`TaskOutput` 含む）+ 夜間 DLP で守る。PII に触れないスキルは「PII セッション用 settings プロファイル（`--settings`）と通常プロファイルを分ける」選択肢を DP9 に置く。
 - `claude purge <project>` 等で**統制導入前の転記・貼付キャッシュ・履歴を削除**（`/insights`・`/resume`・`search_session_transcripts` で再送される）。https://code.claude.com/docs/en/claude-directory#clear-local-data
 - **実測（偽 PII で）**: (1) 偽 PII を表示した画面/ターミナルで `mcp__computer-use__app_screenshot`・`mcp__terminal__read_terminal`・`mcp__ccd_session_mgmt__search_session_transcripts` を呼ばせ、bare 名 deny が効くか。(2) Finder から `~/PII/inbox/fake.csv` を Desktop チャットにドラッグ＆ドロップし、転記（`~/.claude/projects/**/*.jsonl`）に内容が入るか、Read ツールを経由するか。(3) 画像を貼ったときの UserPromptSubmit `prompt` に `[Image #N]` 等のマーカーが入るか。(4) Read/Grep/Glob/WebFetch/Edit の PostToolUse `tool_response` の形を記録（契約テストの基準にする）。(5) Desktop ローカルセッションで `sandbox.enabled` が強制されるか（`claude doctor` と `curl` 拒否で確認）。効かない項目は DP3（CLI/VS Code へ寄せる）に倒す。
 
@@ -151,7 +153,7 @@ claude --version   # 以下の最小版: updatedToolOutput 書換 2.1.233+、cla
       "WebFetch(domain:slack.com)", "WebFetch(domain:*.slack.com)",
       "WebFetch(domain:mail.google.com)", "WebFetch(domain:docs.google.com)", "WebFetch(domain:drive.google.com)",
       "WebFetch(domain:storage.googleapis.com)", "WebFetch(domain:*.amazonaws.com)",
-      "WebFetch(domain:cureapp.internal)", "WebFetch(domain:*.cureapp.internal)",
+      "WebFetch(domain:example.internal)", "WebFetch(domain:*.example.internal)",
       // --- 組み込み/Desktop in-process ツール（bare 名の deny はツール定義ごと文脈から消える。sdk 型への効果は Day 0 で実測） ---
       "Monitor", "ReadMcpResourceTool", "ListMcpResourcesTool", "RemoteTrigger",
       "mcp__computer-use", "mcp__claude-in-chrome", "mcp__terminal",
@@ -192,7 +194,7 @@ claude --version   # 以下の最小版: updatedToolOutput 書換 2.1.233+、cla
                          "registry.npmjs.org", "pypi.org", "files.pythonhosted.org",
                          "registry-1.docker.io", "auth.docker.io", "ghcr.io", "nodejs.org"],
       // deniedDomains は全モードで拒否・コマンド単位承認でも開かない → データプレーンの実ホストだけ。境界は IAM に置く
-      "deniedDomains": ["db.prod.cureapp.internal", "*.rds.amazonaws.com", "*.docdb.amazonaws.com",
+      "deniedDomains": ["db.prod.example.internal", "*.rds.amazonaws.com", "*.docdb.amazonaws.com",
                         "dynamodb.ap-northeast-1.amazonaws.com", "logs.ap-northeast-1.amazonaws.com",
                         "rds-data.ap-northeast-1.amazonaws.com", "athena.ap-northeast-1.amazonaws.com",
                         "<pii-bucket>.s3.ap-northeast-1.amazonaws.com",
@@ -332,7 +334,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA claude GRANT SELECT ON TABLES TO claude_ro;
 ### 4.5 Sentry / Slack / コネクタ全般
 
 - Sentry: Organization Settings > Security & Privacy の Data Scrubber を組織レベルで ON（プロジェクト上書き防止。組織管理者権限が必要、DP20）、Additional Sensitive Fields に `name, kana, email, phone, address, birth_date, patient_id, user.email, user.username…`、Advanced Data Scrubbing に電話/〒/患者 ID 正規表現。SDK は JS v10/v11 で `sendDefaultPii` が非推奨化され `dataCollection` 既定が userInfo/httpBodies を**収集する**方向なので、`dataCollection: { userInfo:false, cookies:false, httpHeaders:{request:false,response:false}, httpBodies:{incoming:'none',outgoing:'none'}, urlQueryParams:false }` を明示 + `beforeSend` で `user`/`request` を削除（https://docs.sentry.io/platforms/javascript/configuration/options/ ）。スクラブは取り込み時適用で**既存イベントに遡及しない**（未確認・性質上）ため、**有効化後 90 日はサーバ名ごと `mcp__<sentry-uuid>` を deny**（本環境の実在ツール `search_errors`/`search_issues`/`search_traces`/`search_profiles`/`search_logs`/`search_replays`/`analyze_issue_with_seer`/`execute_sentry_tool`/`get_sentry_resource` を漏れなく止める）し、`safe-data.sentry_events`（API + ローカル擬似化）を使う。90 日後に戻す場合も Replay/Logs/Profiles/`execute_sentry_tool`（汎用実行）はツール単位で恒久 deny。
-- Slack: `slack-safe` stdio MCP（bot トークン、チャンネル許可リスト、擬似化、40k 上限）に全面置換。claude.ai Slack コネクタは切断（`weekly-shanaiho` は `slack-safe` の読取ツールに差し替え、DP9）。
+- Slack: `slack-safe` stdio MCP（bot トークン、チャンネル許可リスト、擬似化、40k 上限）に全面置換。claude.ai Slack コネクタは切断（Slack を読む既存 Skill は `slack-safe` の読取ツールに差し替え、DP9）。
 - Calendar / Docs / Figma: 業務上不要なら切断。Claude Docs コネクタは「社内文書本文の読取」と「Anthropic ホスト Docs への書込み」の双方向経路なので、切断か `mcp__<docs-uuid>` deny。Figma は PII 非経路なので残して良いが、`get_screenshot` の画像は PostToolUse で `type:"image"` ブロックを `{type:"text", text:"[image withheld]"}` に置換するか（MCP 出力は形検証なし）、モックに実データ風氏名を入れない運用。
 - AWS: `aws___run_script`/`get_presigned_url` は deny。残す AWS MCP には IAM で §4.1 のデータプレーン Deny を付けた専用ロールのみ（プラグインがどの資格情報を使うかは未確認）。
 - **MCP 集合の固定（MDM/managed-settings を配布できる場合のみ）**: `managedMcpServers` は **remote `http`/`sse` の `https://` URL 専用**で `command`/`args`/`env` を持てない（stdio の `safe-data`/`support-intake`/`slack-safe` は配布不可）。stdio の自作サーバを組織的に固定するには (i) `managed-mcp.json`（排他制御。stdio 可。ただしプラグイン MCP（Figma/GitKraken/AWS）とユーザー追加サーバは全部消え、claude.ai コネクタも `allowAllClaudeAiMcps` を置かない限り消える）か、(ii) user/project の `.mcp.json` に自作サーバを置き、managed に `allowedMcpServers`（`serverCommand` で**完全一致**列挙。`serverName` は security control ではない）+ `allowManagedMcpServersOnly: true`（**`allowedMcpServers` と組でないと何も制限しない**）を置く。`strictPluginOnlyCustomization` に `mcp` を**入れない**（入れると safe-data 自身が読み込まれない）。in-process `sdk` 型（Desktop のコネクタ・内部ツール）は allow/deny リストの対象外。https://code.claude.com/docs/en/managed-mcp 、https://code.claude.com/docs/en/settings-reference#allowmanagedmcpserversonly 。**MDM が無い単独運用では MCP 集合の固定は不可**: `deniedMcpServers`（Any file、`serverUrl`/`serverCommand` で）と `permissions.deny` で縮退する。
@@ -411,7 +413,7 @@ launchd 常駐（`127.0.0.1:8787`、外部通信なし、ワーカープール�
  "reason":"個人情報（顧客辞書に一致する氏名 1 件・患者ID 1 件）を検出したため送信を止めました。該当データは ~/PII/inbox/ に置き、safe-data 経由で参照してください。",
  "hookSpecificOutput":{"hookEventName":"UserPromptSubmit","suppressOriginalPrompt":true}}
 ```
-- block 条件: 辞書フル一致 / 患者 ID スキーマ / 文脈付マイナンバー / 異なる 2 種以上の PII 型。単独のメール・電話・7〜12 桁数字は block せず `additionalContext` で注意のみ（`@cureapp.jp`、会社代表番号、注文番号を誤 block しない）。
+- block 条件: 辞書フル一致 / 患者 ID スキーマ / 文脈付マイナンバー / 異なる 2 種以上の PII 型。単独のメール・電話・7〜12 桁数字は block せず `additionalContext` で注意のみ（`@example.co.jp（自社ドメイン）`、会社代表番号、注文番号を誤 block しない）。
 - 画像を含むプロンプトは画像を検査できないため block したいが、`prompt` フィールドに `[Image #N]` 等のマーカーが入るかは**未確認**（Day 0 で実測。入らなければ「PII が映る画像を貼らない」運用 + Desktop では PII 近傍作業を行わない（DP3））。
 - UserPromptSubmit は**サブエージェントの報告・スケジュール・他セッションからのメッセージなど Claude Code 自身が始めるターンでも発火**する（https://code.claude.com/docs/en/hooks#userpromptsubmit ）。起源を判別する入力フィールドは未確認なので、報告エンベロープらしき定型を検出したら block せず注記に落とす。
 - 汚染マーカーがあるセッションでは全プロンプトを block し、理由文に解除手順（下記）を書く。
@@ -443,7 +445,7 @@ launchd 常駐（`127.0.0.1:8787`、外部通信なし、ワーカープール�
 |---|---|---|
 | 0 正規化・復号 | NFKC、全角/ハイフン/空白バリアント、**異体字・旧字体の等価クラス表**（NFKC では正規化されない: 髙↔高、﨑↔崎、齋↔斎↔齊↔斉、邊↔邉↔辺、澁↔渋、國↔国、廣↔広、嶋↔島、櫻↔桜、眞↔真、濵↔濱↔浜、萬↔万、冨↔富、德↔徳、瀨↔瀬、龍↔竜、惠↔恵、條↔条、彌↔弥、禮↔礼 — 辞書側とテキスト側の両方を同じ代表字に写像）、**ローマ字正規化**（ヘボン/訓令: shi↔si, chi↔ti, tsu↔tu, fu↔hu, ji↔zi, sha↔sya, cho↔tyo、長音 ou↔o↔oh↔ō、大文字小文字、`Last First`/`First Last`/`LAST First` を辞書生成時に全展開）、JSON `\uXXXX`・`%xx`・QP（`=E7=94=B0`）・HTML エンティティの復号後に再走査、base64/16 進の長い塊は復号試行→不能なら `[ENCODED_BLOB_WITHHELD]`、CP932 再デコード | 符号化迂回（Python `json.dumps` 既定、URL ログ、MIME）と表記揺れを塞ぐ |
 | 1 スキーマ/キー文脈 | JSON/CSV/`key=value`/SQL ヘッダのキー名（name/氏名/kana/tel/phone/電話/mail/birth/dob/生年月日/address/住所/patient/member/user_id/device_id）に対応する値を型ごとに無条件マスク。数値電話は先頭 0 補完して JP 検証 | 構造化データで「保証」を機械的に裏付ける唯一の層 |
-| 2 決定的規則（文脈ゲート必須） | 電話: python-phonenumbers region=JP（0ABJ, 060/070/080/090, 050, 0120/0800, 0570, +81。https://www.soumu.go.jp/main_sosiki/joho_tsusin/top/tel_number/number_shitei.html ）／メール（`@cureapp.jp`・`example.*` 除外）／〒: 住所文脈時のみ／**住所: 都道府県アンカー正規表現** `(北海道|東京都|京都府|大阪府|[一-龥]{2,3}県)[一-龥ぁ-んァ-ヶ]{1,10}(市|区|町|村|郡)` に続く `[一-龥ぁ-んァ-ヶ]{0,12}([0-9０-９一二三四五六七八九十]{1,4}(丁目|番地|番|号|－|-)){1,3}` を、住所文脈語（住所|所在地|お届け先|ご住所|〒）近接 **または** 3 階層以上の一致で採用、建物名は後続 20 字をオプションで含める（都道府県名単独・市名単独は採らない）／マイナンバー: 12 桁 **かつ**（マイナンバー｜個人番号 の近接 or 検査数字一致。https://laws.e-gov.go.jp/law/426M60000008085 ）**かつ** `arn:`/URI/16 進内でない（AWS アカウント ID は常に 12 桁）／旅券 `[A-Z]{2}[0-9]{7}` + 文脈語／自社 患者 ID・会員 ID スキーマ（prefix+桁+CD → ≈100%）／保険者番号・記号・番号・枝番: 文脈語必須／**DOB: 西暦 `[0-9]{4}年[0-9]{1,2}月[0-9]{1,2}日`・`YYYY-MM-DD`・`YYYY/MM/DD` と和暦 `(令和|平成|昭和|大正|明治|[RHSTM])[ 　]?(元|[0-9０-９]{1,2})年[0-9０-９]{1,2}月[0-9０-９]{1,2}日` を、`生年月日|生まれ|誕生日|DOB` 近接のみ**（他の日付は残す）／法人番号 13 桁は除外（mod-9。https://www.houjin-bangou.nta.go.jp/documents/checkdigit.pdf ）／法人格（株式会社・(株)・合同会社）・部署名（部・課・室）直結の語は人名候補から除外 | 「記録するがゲートしない」はログにのみ。住所の正規化・検証は geolonia/normalize-japanese-addresses をローカルデータで（既定はネットワーク取得なので file:// 配備。https://github.com/geolonia/normalize-japanese-addresses ） |
+| 2 決定的規則（文脈ゲート必須） | 電話: python-phonenumbers region=JP（0ABJ, 060/070/080/090, 050, 0120/0800, 0570, +81。https://www.soumu.go.jp/main_sosiki/joho_tsusin/top/tel_number/number_shitei.html ）／メール（`@example.co.jp（自社ドメイン）`・`example.*` 除外）／〒: 住所文脈時のみ／**住所: 都道府県アンカー正規表現** `(北海道|東京都|京都府|大阪府|[一-龥]{2,3}県)[一-龥ぁ-んァ-ヶ]{1,10}(市|区|町|村|郡)` に続く `[一-龥ぁ-んァ-ヶ]{0,12}([0-9０-９一二三四五六七八九十]{1,4}(丁目|番地|番|号|－|-)){1,3}` を、住所文脈語（住所|所在地|お届け先|ご住所|〒）近接 **または** 3 階層以上の一致で採用、建物名は後続 20 字をオプションで含める（都道府県名単独・市名単独は採らない）／マイナンバー: 12 桁 **かつ**（マイナンバー｜個人番号 の近接 or 検査数字一致。https://laws.e-gov.go.jp/law/426M60000008085 ）**かつ** `arn:`/URI/16 進内でない（AWS アカウント ID は常に 12 桁）／旅券 `[A-Z]{2}[0-9]{7}` + 文脈語／自社 患者 ID・会員 ID スキーマ（prefix+桁+CD → ≈100%）／保険者番号・記号・番号・枝番: 文脈語必須／**DOB: 西暦 `[0-9]{4}年[0-9]{1,2}月[0-9]{1,2}日`・`YYYY-MM-DD`・`YYYY/MM/DD` と和暦 `(令和|平成|昭和|大正|明治|[RHSTM])[ 　]?(元|[0-9０-９]{1,2})年[0-9０-９]{1,2}月[0-9０-９]{1,2}日` を、`生年月日|生まれ|誕生日|DOB` 近接のみ**（他の日付は残す）／法人番号 13 桁は除外（mod-9。https://www.houjin-bangou.nta.go.jp/documents/checkdigit.pdf ）／法人格（株式会社・(株)・合同会社）・部署名（部・課・室）直結の語は人名候補から除外 | 「記録するがゲートしない」はログにのみ。住所の正規化・検証は geolonia/normalize-japanese-addresses をローカルデータで（既定はネットワーク取得なので file:// 配備。https://github.com/geolonia/normalize-japanese-addresses ） |
 | 2.5 要配慮語彙ゲート（データ経路のみ） | MEDIS 標準病名マスター（病名・修飾語）、医薬品一般名/販売名、検査項目名（JLAC10 系の項目名）、「数値 + 単位（mmHg/mg/dL/kg/kcal/%/HbA1c/BMI）」、症状・服薬の定型表現（飲み忘れ/副作用/発作/受診）に一致する**文単位**を `[HEALTH_CONTENT_WITHHELD]` に置換し `health_flag` を立てる。ヒットした結果は「集計ツール（safe-data）か人間対応へ」の注記を付ける（DP5 と連動）。マスターは医療情報システム開発センター（https://www.medis.or.jp/ 、配布ページは導入時に確認）から取得し版固定 | 自社製品名・一般語（「痛い」単独等）は allowlist。精度は未測定（**未検証**） |
 | 3 既知エンティティ辞書 | 自社 DB から毎晩生成 + **support-intake 取込時の即時追加**（氏名 漢字/かな/ローマ字、メール、電話、患者 ID、Slack ID）を Aho-Corasick。**フルネームのみ**（姓名連結 3 字以上、ローマ字は `\b` 境界 + 順序両方）。単独姓・単独名・2 字以下・かな 3 字未満は登録しない（「原則」「関数」「森林」「editor」が壊れる）。辞書ファイルは `safedata` ユーザー所有 0600・sandbox denyRead | 自社が保有する個人に対しては再現率 ≈100%（異体字・ローマ字は層 0 の等価クラスで吸収） |
 | 4 小型日本語 PII NER（データ経路のみ） | Presidio（data-privacy-stack 2.2.364）の `GLiNERRecognizer(model='DataSign/gliner-ja-pii-v1', supported_language='ja', chunk_size≈120)` または `HuggingFaceNerRecognizer` + `NagaYu/sumi-ja-pii` INT8 ONNX。`PhoneRecognizer(supported_regions=['JP'])`。ラベル NAME/ADDRESS/DOB。閾値は「誤検出予算 ≤2% 固定での再現率」で決定。allowlist: 都道府県名・自社製品・取引先社名・自社公開連絡先・Faker フィクスチャ値 | 2026 年公開・自己申告の合成データ評価のみ（gliner-ja-pii 160 トークン上限、Sumi 名前再現率 0.81）→ **未検証**として扱い、版固定・隔離 venv、退行時は層 1〜3 に戻せる構成。https://huggingface.co/DataSign/gliner-ja-pii-v1 、https://huggingface.co/NagaYu/sumi-ja-pii |
@@ -487,17 +489,17 @@ launchd 常駐（`127.0.0.1:8787`、外部通信なし、ワーカープール�
 | deny 後に Claude が 1〜2 回迂回して失敗する | Read/Bash deny は無言 | deny 理由に代替経路（`safe-data.*`/`./data/safe`）を明記。CLAUDE.md に「データは safe-data 経由、個人は `[P12_…]` で参照、推測・復元しない」を 3 行 |
 | **Desktop 既定ワークスペースが読み書き不能**（前版の `~/Library/**` deny） | Read deny は Edit/Write にも適用 | PII 実在パスのみ deny。`~/Library` を広く塞ぐなら `allowRead` で `Application Support/Claude`・`Caches`・`Python`・`pnpm`・`Developer` を再開放 |
 | **ローカル dev サーバに listen/接続できず、Playwright webServer・supertest・`curl localhost` が失敗** | `allowLocalBinding:false`（`allowedDomains` の localhost は直接接続に効かない） | `allowLocalBinding:true` + 「PII を持つローカルサービスを同一マシンで動かさない」運用、または起動コマンドだけ `excludedCommands`。`preview_start` は deny しない |
-| **`aws`/`cdk`/`terraform`/`gcloud`/`gws`/Chromium 取得が永久に失敗** | `deniedDomains` は全モードで拒否・コマンド単位承認でも開かない | ワイルドカードをやめデータプレーン実ホストのみ deny。境界は IAM |
+| **`aws`/`cdk`/`terraform`/`gcloud`/Chromium 取得が永久に失敗** | `deniedDomains` は全モードで拒否・コマンド単位承認でも開かない | ワイルドカードをやめデータプレーン実ホストのみ deny。境界は IAM |
 | **CSV/ノートブックを作成・編集できない、安全化 CSV が読めない** | 拡張子 deny は Write/Edit/NotebookEdit も止める、`*.safe.csv` は `*.csv` に一致 | ディレクトリ単位 deny（`./data/raw`、`./exports`、`./notebooks/raw`）、安全化出力は `.tsv`/`.safecsv` |
 | **「Saved memories」が毎回失敗** | `~/.claude/projects/**` deny が `memory/` を巻き込む | deny を `**/*.jsonl` と `**/tool-results/**` に絞る、または `autoMemoryDirectory` 移設 |
 | `docker` コマンドが失敗 | docker はサンドボックス非互換（公式） | `excludedCommands: ["docker compose *"]` を最小限。`py_run` は MCP プロセスから起動 |
 | サブシェル/複数 cd を含むコマンドが Auto でもプロンプト | `blockReadsOutsideWorkingDirectories` 下でサンドボックス非強制時 | Phase 0 では blockReads を入れない。入れる時は `allowManagedReadPathsOnly` を置かずサンドボックスで強制、`additionalDirectories` に共有リポジトリ |
 | 許可外ホストへの接続が永久に失敗（prisma/playwright/brew） | `strictAllowlist`/`allowManagedDomainsOnly` が Auto のコマンド単位ドメイン承認を無効化 | 使わない。PII 源 SaaS/DB は `deniedDomains`（実ホスト）で塞ぐ |
 | SSH 経由の git push が失敗 | `~/.ssh` を denyRead した場合 | git を HTTPS + `gh auth` に寄せてから deny（DP16） |
-| 既存スキルが止まる（`weekly-shanaiho`、`gws` 系、`sonnet-orchestrate`、`teamspirit-kosu`） | Slack/Google コネクタ切断、`www.googleapis.com` deny、`disableSkillShellExecution`、`DISABLE_BACKGROUND_TASKS`、computer-use/Chrome deny | 棚卸し後に判断（DP9）。`slack-safe` へ差し替え、PII 非関連スキルは別 settings プロファイルで実行、背景タスクは止めず PostToolUse（全ツール）で守る |
+| 既存スキルが止まる（Slack 読取系・Google API 系・背景サブエージェント系・ブラウザ操作系の Skill） | Slack/Google コネクタ切断、`www.googleapis.com` deny、`disableSkillShellExecution`、`DISABLE_BACKGROUND_TASKS`、computer-use/Chrome deny | 棚卸し後に判断（DP9）。`slack-safe` へ差し替え、PII 非関連スキルは別 settings プロファイルで実行、背景タスクは止めず PostToolUse（全ツール）で守る |
 | Read→Edit が `old_string not found` でループ | PostToolUse でソースをマスクすると実ファイルと乖離 | cwd 内コード/Edit/Write はマスク対象外（患者 ID/辞書フル一致のみ）。cwd を PII 不在に保つことが前提 |
 | ID・識別子が壊れる（AWS アカウント ID、注文番号、trace_id、`東京都`→`[NAME]京都`） | 12 桁/10 桁規則、辞書の部分一致、住所規則の過剰一致 | 文脈ゲート、フルネーム限定、英数字トークン境界、都道府県単独は採らない、allowlist |
-| 同僚メール・注文番号・サブエージェント報告が block される | UserPromptSubmit の過剰 block、報告でも発火 | 高確信のみ block、`@cureapp.jp` 除外、報告エンベロープは注記のみ |
+| 同僚メール・注文番号・サブエージェント報告が block される | UserPromptSubmit の過剰 block、報告でも発火 | 高確信のみ block、`@example.co.jp（自社ドメイン）` 除外、報告エンベロープは注記のみ |
 | 大きな出力を読めず `tail` で再実行 | 退避ファイルの Read deny（Phase 0） | `bashOutputMaxChars:128000`、Phase 2 で退避ファイルの即時スクラブ |
 | ツール呼び出しごとの遅延、並列時のタイムアウト→原文送信 | NER が CPU を取り合い 30 秒超 | ワーカープール、サイズ階層、予算内応答（原文を返さない）、cwd コードに NER を掛けない |
 | デーモン停止で全部止まる | ヘルスゲートの対象が広すぎる | ゲート対象は残置コネクタ MCP のみ、自動 kickstart、SessionStart で通知 |
@@ -506,7 +508,7 @@ launchd 常駐（`127.0.0.1:8787`、外部通信なし、ワーカープール�
 | 問い合わせ本文が読めない（既定は構造化フィールドのみ） | 要配慮の内容を送らない設計 | `category`/`intent_summary`/`health_flag` で分類・テンプレ返信は完結。本文が必要なら DP5 で `tickets_get_body_masked` を開放 |
 | 名寄せ・五十音順・表記揺れ判定の品質が落ちる | 擬似化の原理的限界 | 人物スコープ ID でソース横断リンク、ソート/重複/正規化は safe-data の決定的ツールに委譲 |
 | Gmail/Drive コネクタが消える | 切断 | `tickets_get → tickets_set_category → reply_draft` の 3 呼び出しで完結。Drive は ETL で `./data/safe` へ |
-| `/feedback` `/insights` `/resume`（旧セッション）`!` が使えない/禁止、Artifact が無い | 設定・運用 | 導入前に転記削除、`!` は手順書で禁止（無効化キーは未確認）、成果物は `SendUserFile`/kawaraban で共有 |
+| `/feedback` `/insights` `/resume`（旧セッション）`!` が使えない/禁止、Artifact が無い | 設定・運用 | 導入前に転記削除、`!` は手順書で禁止（無効化キーは未確認）、成果物は ファイル送付や社内の共有サービスで共有 |
 | Desktop の computer use / Chrome 拡張 / Browser のページ読取が無い | deny / Desktop 管理キー | 公開ドキュメントは WebFetch（allowlist）で可。UI 確認は PII の無い Faker シード環境で `preview_start` + `autoVerify` を限定的に |
 | 汚染マーカーで永久ブロック | 解除経路の欠落 | SessionStart `source=clear` で自動解除、転記監視で rewind 検知、`pii-guard untaint` |
 | サーバ側分類器の no-verdict で拒否、10 連続で turn 停止 | ゲートウェイ/ネットワーク起因 | 本案はワイヤ不改変なので通常起きない。`PermissionDenied` フックで記録、頻発時は `CLAUDE_CODE_AUTO_MODE_SERVER=0` |
@@ -574,9 +576,9 @@ launchd 常駐（`127.0.0.1:8787`、外部通信なし、ワーカープール�
 6. **Bedrock 移行**: WebSearch・claude.ai コネクタ・Desktop の通常モード・Artifacts・Routines・computer use を失うことを受け入れますか？ AWS アカウント/SCP/Model Invocation Logging を設定できる管理者はいますか？ 東京 jp. のクォータ引き上げ申請は可能ですか？
 7. **法務の整理**: Bedrock 利用を「委託」として整理するか「クラウド例外」を主張するか、擬似化テキスト（復元表は社内）の送信可否、FN 発生時の漏えい等報告基準（要配慮を含む場合は件数下限なし）を誰が決めますか？
 8. **管理設定の配布**: MDM/managed-settings.json を配布できますか（できなければ `~/.claude/settings.json` で開始し、`allowManaged*Only`・`managedMcpServers`・`strictPluginOnlyCustomization` は使えず、MCP 集合の固定は `deniedMcpServers` + `permissions.deny` に縮退）？ 複数人で使いますか？
-9. **既存スキル/ワークフロー**: `weekly-shanaiho`（Slack 読取）、`gws`/`ailab-terakoya-report`/`sheets-canvas`（Google API、`www.googleapis.com` deny で停止）、`sonnet-orchestrate`（背景サブエージェント）、`teamspirit-kosu`（Chrome 拡張/computer use）、`kawaraban` のうち残すものはどれですか？ 「PII セッション用」と「通常」の settings プロファイルを分けますか？ `!`cmd`` 依存スキルの有無で `disableSkillShellExecution` を決めます。
+9. **既存スキル/ワークフロー**: Slack 読取系、Google API 系（`www.googleapis.com` deny で停止）、背景サブエージェント系、Chrome 拡張/computer use 系の Skill のうち残すものはどれですか？ 「PII セッション用」と「通常」の settings プロファイルを分けますか？ `!`cmd`` 依存スキルの有無で `disableSkillShellExecution` を決めます。
 10. **工数の上限**: Phase 0〜1（約 1 週間、構造化データ由来の PII を構造的に止める）で止めるか、Phase 2（support-intake・pii-guard・NER、合計約 6〜7 週間/1 名）まで進めるか？ Phase 3（Bedrock・MDM・監査）は組織判断が必要です。
-11. **WebFetch**: pii-guard の PreToolUse で公開ドキュメント allowlist 方式（docs.* / developer.* / npm / PyPI / GitHub の非 Issue パス等。settings の `WebFetch(domain:)` deny はバックストップ）で良いですか、それとも `CLAUDE_CODE_DISABLE_WEB_FETCH=1`（v2.1.285+）で全面停止し社内 docs はエクスポート経由にしますか？ `*.cureapp.jp` 公開面と github.com の Issue（顧客ログが貼られ得る）の扱いは？
+11. **WebFetch**: pii-guard の PreToolUse で公開ドキュメント allowlist 方式（docs.* / developer.* / npm / PyPI / GitHub の非 Issue パス等。settings の `WebFetch(domain:)` deny はバックストップ）で良いですか、それとも `CLAUDE_CODE_DISABLE_WEB_FETCH=1`（v2.1.285+）で全面停止し社内 docs はエクスポート経由にしますか？ 自社の公開ドメインと github.com の Issue（顧客ログが貼られ得る）の扱いは？
 12. **ローカル DB / dev サーバ**: 本番スナップショット DB を localhost に置く運用はありますか？ ローカル dev サーバのプレビュー・Playwright・supertest を維持しますか（維持なら `allowLocalBinding:true` を受容し、PII を持つローカルサービスを同一マシンで動かさない運用。拒否なら起動コマンドだけ `excludedCommands`）？
 13. **画像・スクリーンショット**: 全面禁止で運用できますか？ それともローカル OCR ゲート（Apple Vision、**未検証**）を作る工数を割きますか？
 14. **リポジトリの置き場所**: `~/Documents`・`~/Desktop`・`~/Library` 配下にリポジトリがありますか（あれば該当 deny を外すか `~/src` へ移動）？

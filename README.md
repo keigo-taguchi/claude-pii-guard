@@ -1,5 +1,7 @@
 # claude-pii-guard
 
+Keep raw personal data out of the Anthropic API while keeping Claude Code's Auto mode hands-off. Instead of detecting and masking on the wire, this repo (1) denies Claude Code access to where personal data lives, and (2) runs the work that needs that data locally through a compute-to-data MCP server (`safe-data`) that returns only aggregates, schemas, and pseudonymized results. Docs are in Japanese; the code and config are generic.
+
 Claude Code の Auto モードをそのままに、**生の個人情報が Anthropic API に届かない**構成を作るためのツール群。骨格は「検出して消す」ではなく「Claude が到達できる場所に生データを置かない」+「個人情報が要る処理は手元で実行して結果だけ返す」。
 
 - 全体像: [docs/plan.html](docs/plan.html)
@@ -43,6 +45,13 @@ uv sync
 uv run pytest -q
 uv run safe-data-mcp --check   # 実効設定
 ```
+
+## 自分の環境に合わせる
+
+- `settings/phase0.settings.json` の deny には Claude Desktop 内蔵ツール（`mcp__computer-use`、`mcp__Claude_Browser__*`、`mcp__ccd_*`）や GitKraken / AWS プラグインのツール名が入っている。存在しないツールへの deny は何にも一致しないだけで害はない。自分の環境の名前は `/mcp` で確認し、`settings/connectors.local.json` に写す。
+- `src/safe_data/config.py` の PII 列パターンは日本語のサポート業務向け。自分のスキーマに合わせて `config.toml` の `pii_columns.patterns` で上書きする。
+- `db/03_views.sql` は例。列名を自分のテーブルに合わせる。
+- `docs/design.md` は筆者環境を前提にした設計記録（Skill 名・ドメインは例）。
 
 ## 注意（colima / Docker Desktop）
 

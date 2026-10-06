@@ -268,7 +268,7 @@
 
 <header class="hero">
   <div class="wrap">
-    <div class="eyebrow">CureApp ／ Claude Code 運用 ／ 2026-10-06 ／ 方針確定・Day 0 前</div>
+    <div class="eyebrow">Claude Code 運用 ／ 2026-10-06 ／ 筆者環境（医療系ソフトウェア企業）での計画</div>
     <h1><span class="kw">「個人情報を Claude に送らない」</span>ために、<span class="kw">やろうとしていること</span></h1>
     <p class="lede">
       投げて待つだけの Auto モードは、そのまま。<br>
@@ -587,7 +587,7 @@
           <tr><td class="k">Google Drive</td><td><span class="pill pill-replace">置換</span> 切断。必要なファイルは ETL で安全化コピーを <code>./data/safe/</code> に</td><td>スプレッドシートの顧客名列</td></tr>
           <tr><td class="k">Google Calendar</td><td><span class="pill pill-cut">切断</span> 業務上の必要がなければ</td><td>予定タイトルに顧客名</td></tr>
           <tr><td class="k">Claude Docs</td><td><span class="pill pill-cut">切断</span> または deny</td><td>社内文書の読取と、Anthropic ホストへの書込みの双方向</td></tr>
-          <tr><td class="k">Slack コネクタ</td><td><span class="pill pill-replace">置換</span> 切断し、<strong>slack-safe</strong> に。Bot トークン、読むチャンネルと投稿先を許可リスト、擬似化</td><td>問い合わせチャンネルに実名。既存スキル（weekly-shanaiho）は slack-safe に差し替え</td></tr>
+          <tr><td class="k">Slack コネクタ</td><td><span class="pill pill-replace">置換</span> 切断し、<strong>slack-safe</strong> に。Bot トークン、読むチャンネルと投稿先を許可リスト、擬似化</td><td>問い合わせチャンネルに実名。Slack を読む既存 Skillは slack-safe に差し替え</td></tr>
           <tr><td class="k">Sentry</td><td><span class="pill pill-replace">置換</span> 組織設定でスクラブ ON。有効化後 90 日はコネクタを deny し、<code>safe-data.sentry_events</code> で代替</td><td>イベントに user.email 等。スクラブは既存イベントに遡及しない</td></tr>
           <tr><td class="k">Figma</td><td><span class="pill pill-keep">そのまま</span></td><td>個人情報の経路ではない</td></tr>
           <tr><td class="k">AWS MCP</td><td><span class="pill pill-replace">絞る</span> <code>run_script</code> / <code>get_presigned_url</code> は deny。残りは S3 / DynamoDB / ログの読取を Deny した専用 IAM ロールで</td><td>生データのバケットやテーブルに届く</td></tr>
