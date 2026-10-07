@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Keep raw personal data out of the Anthropic API while keeping Claude Code's Auto mode hands-off: safe-data MCP server, DB views, ETL, settings, skills."
 requires-python = ">=3.12"
 dependencies = [
+    "cryptography>=43",
     "faker>=30",
     "mcp>=2.3",
     "psycopg[binary]>=3.1",
@@ -15,6 +16,7 @@ safe-data-mcp = "safe_data.server:main"
 safeify-csv = "safe_data.etl:main"
 pii-guard = "pii_guard.server:main"
 pii-guard-dict = "pii_guard.dict_build:main"
+pii-guard-scan = "pii_guard.scan:main"
 
 [dependency-groups]
 dev = [

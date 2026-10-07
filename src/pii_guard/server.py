@@ -37,6 +37,7 @@ class State:
         base = Path(cfg.get("dir", "~/.config/safe-data")).expanduser()
         self.dict_path = Path(cfg.get("dictionary", base / "dictionary.json")).expanduser()
         self.vault_path = Path(cfg.get("vault", base / "vault.sqlite")).expanduser()
+        self.vault_key = Path(cfg.get("vault_key", base / "vault.key")).expanduser()
         self.patient_id = cfg.get("patient_id_regex")
         self.allow_emails = list(cfg.get("allow_email_domains", []))
         self.host = cfg.get("host", "127.0.0.1")
@@ -48,7 +49,7 @@ class State:
 
     def reload(self) -> None:
         d = Dictionary.load(self.dict_path)
-        v = Vault(self.vault_path)
+        v = Vault(self.vault_path, self.vault_key)
         with self.lock:
             self.dictionary = d
             self.vault = v

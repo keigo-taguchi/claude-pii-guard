@@ -65,6 +65,43 @@ async function maskTexts($: any, s: Settings, site: string, texts: readonly stri
   return data.texts.map((t: unknown) => String(t))
 }
 
+const TOKEN_RE = /\[(?:P\d+_[A-Z_]+|[A-Z_]+_\d+)\]/
+
+function collectStrings(v: unknown, out: string[]): void {
+  if (typeof v === 'string') {
+    if (TOKEN_RE.test(v)) out.push(v)
+  } else if (Array.isArray(v)) v.forEach(x => collectStrings(x, out))
+  else if (v && typeof v === 'object') Object.values(v as Record<string, unknown>).forEach(x => collectStrings(x, out))
+}
+
+function replaceStrings(v: unknown, map: Map<string, string>): unknown {
+  if (typeof v === 'string') return map.get(v) ?? v
+  if (Array.isArray(v)) return v.map(x => replaceStrings(x, map))
+  if (v && typeof v === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = replaceStrings(x, map)
+    return out
+  }
+  return v
+}
+
+// Display-only restoration. The daemon only answers unmask for X-Caller ui.render.
+async function unmaskProps($: any, s: Settings, props: unknown): Promise<unknown> {
+  const strings: string[] = []
+  collectStrings(props, strings)
+  if (strings.length === 0) return props
+  const res = await $.http.fetch(s.daemonUrl + '/unmask', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-caller': 'ui.render' },
+    body: JSON.stringify({ texts: strings }),
+  })
+  if (!res.ok) throw new Error('unmask ' + res.status)
+  const data = JSON.parse(res.text)
+  const map = new Map<string, string>()
+  strings.forEach((orig, i) => map.set(orig, String(data.texts[i] ?? orig)))
+  return replaceStrings(props, map)
+}
+
 async function health($: any, s: Settings): Promise<any> {
   const res = await $.http.fetch(s.daemonUrl + '/healthz', { method: 'GET' })
   if (!res.ok) throw new Error('healthz ' + res.status)
@@ -153,6 +190,13 @@ export const register: Register = (on, options) => {
     }
     return yield* next(e)
   })
+
+  // ---- show real values on screen only (the model and the transcript keep tokens)
+  on('ui.render', { component: ['UserMessage', 'AssistantMessage', 'ToolUse', 'ToolResult'] }, async ($, e, next) => {
+    if (!enabled) return next(e)
+    const props = await unmaskProps($, s, e.props)
+    return next({ ...e, props } as any)
+  }).catch(($, e, next) => next(e))
 
   // ---- /pii ------------------------------------------------------------------
   on('command.run', { command: 'pii' }, async ($, e) => {

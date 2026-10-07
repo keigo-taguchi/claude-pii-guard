@@ -16,6 +16,11 @@ function fakeDaemon(on: any, calls: any[] = []) {
       const texts = (body.texts as string[]).map(t => t.replace(/田中太郎/g, '[P1_NAME]').replace(/090-1234-5678/g, '[PHONE_1]'))
       return reply({ texts, hits: { DICT_NAME: 1 }, tainted: false })
     }
+    if (url.endsWith('/unmask')) {
+      const caller = (init.headers ?? {})['x-caller']
+      if (caller !== 'ui.render') return { value: { status: 403, ok: false, headers: {}, text: '{}' } }
+      return reply({ texts: (body.texts as string[]).map(t => t.replace(/\[P1_NAME\]/g, '田中太郎')) })
+    }
     if (url.endsWith('/check-args')) {
       const s = JSON.stringify(body.args)
       return reply({ deny: s.includes('田中太郎'), kinds: s.includes('田中太郎') ? ['DICT_NAME'] : [] })
@@ -120,4 +125,28 @@ test('/pii status reports the daemon', async ($, on) => {
   fakeDaemon(on)
   const r = await $.command.run({ command: 'pii', args: '' })
   expect(r.text).toContain('デーモン OK')
+})
+
+test('ui.render shows real values on screen for a masked assistant message', async ($, on) => {
+  fakeDaemon(on)
+  on('ui.render', ($: any, e: any) => ({ type: 'Text', props: {}, children: [String(e.props.text)] }))
+  const ui = await $.ui.mount({
+    plugin: 'pii-guard', component: 'AssistantMessage', requestId: 'm1', surface: 'terminal',
+    viewport: { columns: 100, rows: 30 },
+    props: { text: '[P1_NAME] さんの件です', isFirstOfReply: true },
+  } as any)
+  expect(await ui.find({ type: 'Text', text: '田中太郎 さんの件です' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('ui.render keeps tokens when the daemon is down', async ($, on) => {
+  on('http.fetch', () => ({ deny: 'down' }))
+  on('ui.render', ($: any, e: any) => ({ type: 'Text', props: {}, children: [String(e.props.text)] }))
+  const ui = await $.ui.mount({
+    plugin: 'pii-guard', component: 'AssistantMessage', requestId: 'm2', surface: 'terminal',
+    viewport: { columns: 100, rows: 30 },
+    props: { text: '[P1_NAME] さん', isFirstOfReply: true },
+  } as any)
+  expect(await ui.find({ type: 'Text', text: '[P1_NAME] さん' })).toBeDefined()
+  await ui.unmount()
 })

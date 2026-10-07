@@ -27,6 +27,7 @@ Claude Code の Auto モードをそのままに、**生の個人情報が Anthr
 | `sql_run(sql, max_rows)` | 1 文の SELECT の結果（行数上限・n<11 抑止） | `SELECT *`、書込み、設定読取 |
 | `py_run(script, inputs)` | ネットワーク無しコンテナで実行した結果 JSON（8KB） | 保護対象の値を含む結果、print 出力 |
 | `fixture_make(source, n)` | ビュー/ファイルと同じ形の合成行 | — |
+| `read_masked(file_id, limit)` | inbox のテキストを pii-guard で擬似化した先頭 N 行 | デーモン停止時は何も返さない |
 
 ## pii-guard（Mod + デーモン）
 
@@ -46,9 +47,10 @@ claude --plugin-dir ~/work/claude-pii-guard/mods/pii-guard
 | `prompt.context` | CLAUDE.md・メモリ・git 状態を `/mask` | context を空にする |
 | `tool.call`（Bash と MCP） | 引数に辞書一致・患者 ID があれば `{ deny }` | `{ deny }` |
 | `turn.step` | 汚染中はモデルを呼ばない | — |
+| `ui.render` | 画面に描くときだけ札を実値に戻す（モデル・転記は札のまま） | 札のまま表示 |
 | `/pii` | status / untaint / reload / off / on | — |
 
-検出は辞書（自社 DB 由来、異体字・かな・ローマ字の揺れを吸収）→ 規則（メール・電話・〒・文脈付きマイナンバー・文脈付き生年月日・住所・患者 ID）。site で強さを変える（コード行は辞書と ID のみ）。`claude plugin test`（15 件）と pytest（48 件）で検証。
+vault は Fernet で暗号化（鍵は `~/.config/safe-data/vault.key`、0600）。`pii-guard-scan` が毎晩 3:15 に転記・メモリ・tool-results を走査し、保護対象の値が残っていれば種類と件数を `~/.config/safe-data/scan.log` に出す（値は出さない）。検出は辞書（自社 DB 由来、異体字・かな・ローマ字の揺れを吸収）→ 規則（メール・電話・〒・文脈付きマイナンバー・文脈付き生年月日・住所・患者 ID）。site で強さを変える（コード行は辞書と ID のみ）。`claude plugin test`（17 件）と pytest（49 件）で検証。GitHub Actions が push ごとに両方を回す。
 
 ## セットアップ
 

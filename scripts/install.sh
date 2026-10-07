@@ -34,6 +34,16 @@ else
   echo "   docker not running; later: docker build -t safe-data-runner docker/runner"
 fi
 
+echo "== 7. pii-guard daemon (mod + nightly scan)"
+if [ -f ~/.config/safe-data/dictionary.json ]; then
+  scripts/pii-guard-launchd.sh install >/dev/null && echo "   daemon + nightly scan registered (launchd)"
+else
+  echo "   no dictionary yet; build one, then: scripts/pii-guard-launchd.sh install"
+  echo "     uv run pii-guard-dict --from-csv <customers.csv> --id user_id --name name --kana kana --email mail --phone tel"
+fi
+echo "   load the mod in every session: add to ~/.claude/settings.json ->"
+echo "     \"env\": { \"CLAUDE_CODE_PLUGIN_DIRS\": \"$ROOT/mods/pii-guard\" }"
+
 cat <<EOF
 
 Next:

@@ -210,6 +210,49 @@ def fixture_make(source: str, n: int = 5) -> dict[str, Any]:
     return _ok(source=source, rows=synth_rows(cols[source], n), note="synthetic")
 
 
+# --------------------------------------------------------------- read_masked
+
+def _daemon_mask(texts: list[str], site: str = "data") -> list[str]:
+    import json as _json
+    import urllib.request
+
+    url = os.environ.get("PII_GUARD_URL", "http://127.0.0.1:8787")
+    req = urllib.request.Request(url + "/mask", data=_json.dumps({"site": site, "texts": texts}, ensure_ascii=False).encode(),
+                                 headers={"content-type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=30) as r:
+        data = _json.loads(r.read())
+    if not isinstance(data.get("texts"), list) or len(data["texts"]) != len(texts):
+        raise RuntimeError("malformed daemon reply")
+    return [str(t) for t in data["texts"]]
+
+
+@mcp.tool()
+@guarded
+def read_masked(file_id: str, limit: int = 50) -> dict[str, Any]:
+    """inbox のテキストファイルの先頭 limit 行を、pii-guard デーモンで擬似化してから返す。
+    行単位の中身を見ないと進まないときだけ使う（集計で済むなら sql_run / py_run）。デーモンが止まっていれば返さない。
+
+    Args:
+        file_id: files_describe の id。
+        limit: 行数（最大 200）。
+    """
+    files = list_inbox(cfg)
+    if file_id not in files:
+        return _err(f"unknown file id: {file_id}", file_ids=sorted(files))
+    p = files[file_id]
+    if p.suffix.lower() not in (".csv", ".tsv", ".txt", ".log", ".jsonl", ".md"):
+        return _err("read_masked supports text files only; use py_run for other formats")
+    n = max(1, min(int(limit), 200))
+    from .files import _read_text
+
+    lines = _read_text(p).splitlines()[:n]
+    try:
+        masked = _daemon_mask(lines, site="data")
+    except Exception as e:  # noqa: BLE001
+        return _err(f"pii-guard daemon unavailable ({type(e).__name__}); nothing returned", hint="scripts/pii-guard-launchd.sh install")
+    return _ok(file_id=file_id, lines=masked, line_count=len(masked), note="pseudonymized by pii-guard; placeholders like [P12_NAME] are stable per person")
+
+
 # -------------------------------------------------------------------- py_run
 
 def _docker() -> str | None:

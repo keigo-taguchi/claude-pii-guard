@@ -24,7 +24,7 @@ DICT = {
 
 @pytest.fixture
 def masker(tmp_path):
-    return Masker(Dictionary.from_data(DICT), Vault(tmp_path / "v.sqlite"), patient_id=r"PT-\d{6}")
+    return Masker(Dictionary.from_data(DICT), Vault(tmp_path / "v.sqlite", tmp_path / "v.key"), patient_id=r"PT-\d{6}")
 
 
 def test_normalize_variants_and_kana():
@@ -88,7 +88,7 @@ def test_vault_unmask_round_trip(masker):
 def server(tmp_path):
     dict_path = tmp_path / "dictionary.json"
     dict_path.write_text(json.dumps(DICT, ensure_ascii=False), encoding="utf-8")
-    state = State({"dictionary": str(dict_path), "vault": str(tmp_path / "v.sqlite"), "port": 0, "patient_id_regex": r"PT-\d{6}"})
+    state = State({"dictionary": str(dict_path), "vault": str(tmp_path / "v.sqlite"), "vault_key": str(tmp_path / "v.key"), "port": 0, "patient_id_regex": r"PT-\d{6}"})
     srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(state))
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()
@@ -119,3 +119,13 @@ def test_server_mask_check_unmask(server):
     with urllib.request.urlopen(server + "/healthz", timeout=5) as r:
         h = json.loads(r.read())
     assert h["ok"] and h["dictionary"]["persons"] == 3 and h["vault"] >= 2
+
+
+def test_vault_is_encrypted_at_rest(tmp_path):
+    v = Vault(tmp_path / "v.sqlite", tmp_path / "v.key")
+    v.token_for("NAME", "田中太郎", person="P1")
+    raw = (tmp_path / "v.sqlite").read_bytes() + (tmp_path / "v.sqlite-wal").read_bytes() if (tmp_path / "v.sqlite-wal").exists() else (tmp_path / "v.sqlite").read_bytes()
+    assert "田中太郎".encode("utf-8") not in raw
+    assert (tmp_path / "v.key").stat().st_mode & 0o077 == 0
+    again = Vault(tmp_path / "v.sqlite", tmp_path / "v.key")
+    assert again.value_for("[P1_NAME]") == "田中太郎"
