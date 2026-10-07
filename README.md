@@ -63,6 +63,8 @@ python3 settings/merge_settings.py --apply  # ~/.claude/settings.json に合流�
 
 その後 `scripts/phase0_acceptance.md` を通し、DB は `db/README.md`。
 
+元に戻すときは `scripts/uninstall.sh`（launchd・MCP 登録・Skill リンク・settings.json のバックアップ復元・`~/.config/safe-data`・Docker イメージを確認しながら外す。`~/PII` の中身・DB・claude.ai のコネクタは触らず、手順を表示する）。
+
 ## 開発
 
 ```bash
